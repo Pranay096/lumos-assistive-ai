@@ -28,6 +28,9 @@ def _load_asl_model():
     global _asl_model, _asl_transform
     model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asl_model.pth")
     if not os.path.exists(model_path):
+        # try root directory
+        model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "asl_model.pth")
+    if not os.path.exists(model_path):
         print("[LUMOS] asl_model.pth not found — using deterministic fallback")
         return
     try:
@@ -131,8 +134,6 @@ class LumosEnv:
         self._s: dict = {}
         self._init_state("blind_mode")
 
-    # Fixed scenario index per task — always the same scenario, always reproducible,
-    # but each task shows a DIFFERENT and interesting scenario to the evaluators.
     _FIXED_IDX = {"blind_mode": 0, "deaf_mode": 5, "mute_mode": 2}
 
     def _init_state(self, task_id: str):
@@ -314,5 +315,11 @@ JSON only: {"decision":"...","output_text":"...","confidence":0.9}"""
     avg=round(sum(r["grader_score"] for r in results.values())/3,4)
     return {"model":"gpt-4o-mini","temperature":0,"reproducible":True,"scores":results,"average_score":avg}
 
-if __name__=="__main__":
+
+def main():
+    """Entry point for openenv validate and server startup."""
     uvicorn.run(app, host="0.0.0.0", port=7860)
+
+
+if __name__ == "__main__":
+    main()

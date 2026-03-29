@@ -4,7 +4,27 @@ version = "1.0.0"
 description = "LUMOS Assistive AI OpenEnv — assistive technology for blind, deaf, and mute users"
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "openenv-core>=0.2.0",
+    "fastapi==0.111.0",
+    "uvicorn==0.29.0",
+    "pydantic==2.9.2",
+    "numpy==1.26.4",
+    "openai==1.30.1",
+    "requests",
+    "timm==1.0.24",
+    "albumentations==2.0.8",
+    "Pillow",
+    "opencv-python-headless",
+]
+
+[project.scripts]
+server = "server.app:main"
 
 [tool.openenv]
 name = "lumos-assistive-ai"
 version = "1.0.0"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
