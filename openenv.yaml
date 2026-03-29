@@ -1,0 +1,82 @@
+name: lumos-assistive-ai
+version: 1.0.0
+description: >
+  OpenEnv environment simulating real-world assistive AI tasks for people
+  with visual impairments (Blind Mode), hearing impairments (Deaf Mode),
+  and speech impairments (Mute Mode / ASL finger-spelling).
+author: Pranay Pelapkar
+tags:
+  - openenv
+  - assistive-technology
+  - accessibility
+  - computer-vision
+  - asl
+  - social-impact
+
+tasks:
+  - id: blind_mode
+    description: >
+      Agent interprets camera feed and produces correct audio output for a
+      blind user. Covers scene description, OCR reading, and danger alerts.
+    difficulty: easy
+    max_steps: 8
+    valid_decisions:
+      - describe_scene
+      - ocr_read
+      - alert_danger
+
+  - id: deaf_mode
+    description: >
+      Agent relays spoken words as clear text for display on the user's
+      OLED screen. Must preserve key information from speech transcript.
+    difficulty: medium
+    max_steps: 8
+    valid_decisions:
+      - speech_to_text
+
+  - id: mute_mode
+    description: >
+      Agent recognises ASL finger-spelling frames one at a time, accumulates
+      the full word, and produces speech output for a mute user.
+    difficulty: hard
+    max_steps: 8
+    valid_decisions:
+      - sign_speech
+
+observation_space:
+  task_id: string
+  camera_feed: string
+  microphone: string
+  voice_command: string
+  oled_display: string | null
+  audio_output: string | null
+  asl_letter: string | null
+  spelled_word: string | null
+  step_number: integer
+  hint: string
+
+action_space:
+  decision: "string — one of: describe_scene | ocr_read | alert_danger | speech_to_text | sign_speech"
+  output_text: "string — agent's generated output"
+  confidence: "float [0.0, 1.0]"
+
+reward:
+  range: [0.0, 1.0]
+  shaped: true
+  components:
+    - confidence_bonus: small bonus proportional to action confidence
+    - correct_decision: reward for choosing the right action type
+    - key_objects_mentioned: partial credit for mentioning relevant scene objects
+    - danger_flagged: reward for correctly identifying hazards
+    - key_words_relayed: partial credit for preserving speech content
+    - letter_accuracy: per-letter ASL recognition credit
+    - word_recognised: full reward for correct final word
+    - wrong_letter_penalty: penalty for hallucinated letters
+
+endpoints:
+  reset: POST /reset?task_id=<blind_mode|deaf_mode|mute_mode>
+  step: POST /step
+  state: GET /state
+  tasks: GET /tasks
+  grader: POST /grader
+  baseline: GET /baseline
