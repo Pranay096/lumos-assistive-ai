@@ -1,0 +1,10 @@
+[project]
+name = "lumos-assistive-ai"
+version = "1.0.0"
+description = "LUMOS Assistive AI OpenEnv — assistive technology for blind, deaf, and mute users"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.openenv]
+name = "lumos-assistive-ai"
+version = "1.0.0"
