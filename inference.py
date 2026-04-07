@@ -22,13 +22,25 @@ BASE_ENV_URL = os.getenv("BASE_ENV_URL", "http://localhost:7860").rstrip("/")
 BENCHMARK    = "lumos-assistive-ai"
 MAX_STEPS    = 8
 
-BASELINE_IDX = {"blind_mode": 0, "deaf_mode": 0, "mute_mode": 2}  # fixed: deaf_mode 5→0
+BASELINE_IDX = {"blind_mode": 0, "deaf_mode": 0, "mute_mode": 2}
 
 SYSTEM_PROMPT = """You are an AI agent controlling LUMOS Assistive Glasses for people with disabilities.
+
+Rules:
 - blind_mode: decision must be one of: describe_scene | ocr_read | alert_danger
-- deaf_mode: always use speech_to_text and relay ALL key info from microphone field
-- mute_mode: always use sign_speech and output the exact word being spelled
-JSON only: {"decision":"...","output_text":"...","confidence":0.9}"""
+  * Use alert_danger when camera shows hazards (stove, knife, car, wet floor, machinery)
+  * Use ocr_read when voice_command contains "read" or camera shows text/book
+  * Use describe_scene for general navigation without hazards
+- deaf_mode: always use speech_to_text. Relay ALL key info from the microphone field verbatim.
+- mute_mode: always use sign_speech.
+  * The spelled_word field shows ALL letters detected so far.
+  * The asl_letter field shows the CURRENT letter being shown.
+  * Output the COMPLETE word accumulated so far in output_text.
+  * When you see the full word spelled out, output the entire word (e.g., "THANKS", "HELLO").
+  * Do NOT output just one letter — always output the full spelled_word value.
+
+Respond with valid JSON only:
+{"decision": "...", "output_text": "...", "confidence": 0.9}"""
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -47,7 +59,11 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def env_reset(task_id: str, fixed_idx: int) -> dict:
-    r = requests.post(f"{BASE_ENV_URL}/reset", params={"task_id": task_id, "fixed_idx": fixed_idx}, timeout=30)
+    r = requests.post(
+        f"{BASE_ENV_URL}/reset",
+        params={"task_id": task_id, "fixed_idx": fixed_idx},
+        timeout=30
+    )
     r.raise_for_status()
     return r.json()
 
@@ -59,15 +75,26 @@ def env_step(action: dict) -> dict:
 
 
 def call_llm(obs: dict, client: OpenAI) -> dict:
+    task = obs.get("task_id", "")
+    spelled = obs.get("spelled_word") or ""
+    asl_letter = obs.get("asl_letter") or ""
+    step = obs.get("step_number", 0)
+
+    # For mute_mode, give the agent a clear hint about what to output
+    mute_hint = ""
+    if task == "mute_mode" and spelled:
+        mute_hint = f"\nIMPORTANT: The word spelled so far is '{spelled}'. Output this complete word in output_text."
+
     user_msg = (
         f"Task: {obs.get('task_id')}\n"
         f"Camera: {obs.get('camera_feed', '')}\n"
         f"Microphone: {obs.get('microphone', '')}\n"
         f"Voice command: {obs.get('voice_command', '')}\n"
-        f"ASL letter: {obs.get('asl_letter')}\n"
-        f"Spelled so far: {obs.get('spelled_word')}\n"
+        f"ASL letter (current): {asl_letter}\n"
+        f"Spelled so far (complete): {spelled}\n"
         f"Hint: {obs.get('hint', '')}\n"
-        f"Step: {obs.get('step_number', 0)}"
+        f"Step: {step}"
+        f"{mute_hint}"
     )
     try:
         resp = client.chat.completions.create(
@@ -77,7 +104,7 @@ def call_llm(obs: dict, client: OpenAI) -> dict:
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.0,
-            max_tokens=120,
+            max_tokens=150,
         )
         raw = resp.choices[0].message.content or "{}"
         clean = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
@@ -95,6 +122,7 @@ def wait_for_server(retries: int = 15, delay: float = 3.0) -> bool:
                 return True
         except requests.ConnectionError:
             pass
+        print(f"[DEBUG] Waiting for server... attempt {i+1}/{retries}", flush=True)
         time.sleep(delay)
     return False
 
@@ -121,8 +149,13 @@ def run_episode(task_id: str, client: OpenAI) -> dict:
             output_text = str(parsed.get("output_text", ""))
             confidence  = float(max(0.0, min(1.0, parsed.get("confidence", 0.8))))
 
+            # Truncate action string for logging (keep it readable)
             action_str = f"{decision}|{output_text[:30]}"
-            result = env_step({"decision": decision, "output_text": output_text, "confidence": confidence})
+            result = env_step({
+                "decision": decision,
+                "output_text": output_text,
+                "confidence": confidence
+            })
 
             obs     = result.get("observation", obs)
             reward  = float(result.get("reward", 0.0))
@@ -142,6 +175,7 @@ def run_episode(task_id: str, client: OpenAI) -> dict:
         if not rewards:
             score = 0.0
         elif not done:
+            # Episode ended without done=True, use mean reward
             score = float(sum(rewards) / len(rewards))
 
     except Exception as e:
@@ -150,7 +184,12 @@ def run_episode(task_id: str, client: OpenAI) -> dict:
         success = False
 
     log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-    return {"task_id": task_id, "grader_score": round(score, 4), "success": success, "steps_taken": steps_taken}
+    return {
+        "task_id": task_id,
+        "grader_score": round(score, 4),
+        "success": success,
+        "steps_taken": steps_taken
+    }
 
 
 def main():
@@ -175,7 +214,13 @@ def main():
         "model": MODEL_NAME,
         "temperature": 0.0,
         "reproducible": True,
-        "scores": {r["task_id"]: {"grader_score": r["grader_score"], "success": r["success"]} for r in results},
+        "scores": {
+            r["task_id"]: {
+                "grader_score": r["grader_score"],
+                "success": r["success"]
+            }
+            for r in results
+        },
         "average_score": avg,
     }
     print(json.dumps(output, indent=2), flush=True)
