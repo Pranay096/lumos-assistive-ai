@@ -30,15 +30,15 @@ import uvicorn
 
 class Observation(BaseModel):
     task_id: str
-    camera_feed: str          # Scene description / current ASL frame
-    microphone: str           # Raw speech input (deaf mode)
-    voice_command: str        # Trigger word / command ("LUMOS", "read book")
-    oled_display: Optional[str] = None   # Text shown on transparent OLED
-    audio_output: Optional[str] = None  # TTS string sent to speaker
-    asl_letter: Optional[str] = None    # Current detected ASL letter
-    spelled_word: Optional[str] = None  # Complete word spelled so far
+    camera_feed: str
+    microphone: str
+    voice_command: str
+    oled_display: Optional[str] = None
+    audio_output: Optional[str] = None
+    asl_letter: Optional[str] = None
+    spelled_word: Optional[str] = None
     step_number: int
-    hint: str = ""            # Partial-progress hint for agent
+    hint: str = ""
 
 
 class Action(BaseModel):
@@ -49,10 +49,7 @@ class Action(BaseModel):
             "speech_to_text | sign_speech"
         )
     )
-    output_text: str = Field(
-        default="",
-        description="The agent's generated output (scene description, relayed speech, etc.)"
-    )
+    output_text: str = Field(default="", description="Agent's generated output")
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
 
 
@@ -64,104 +61,209 @@ class Reward(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Scenario Data
+# Scenario Data  (harder vocabulary, stricter requirements)
 # ---------------------------------------------------------------------------
 
 SCENARIOS: Dict[str, List[dict]] = {
-    # ── BLIND MODE (easy) ──────────────────────────────────────────────────
+
+    # ── BLIND MODE (easy → medium difficulty) ─────────────────────────────
     "blind_mode": [
         {
-            "camera": "A kitchen counter. Hot stove on the left. Knife near the edge.",
+            "camera": "Kitchen counter. Gas burner alight on the left. Cleaver balanced near the edge.",
             "voice": "LUMOS",
             "expect_decision": "alert_danger",
-            "key_objects": ["stove", "knife"],
-            "dangers": ["stove", "knife"],
+            "key_objects": ["burner", "cleaver"],
+            "dangers": ["burner", "cleaver"],
             "difficulty": "easy",
         },
         {
-            "camera": "Busy street. Car approaching fast from the right. Clear path ahead.",
+            "camera": "Busy arterial road. Lorry reversing without warning. Pavement edge immediately ahead.",
             "voice": "LUMOS",
             "expect_decision": "alert_danger",
-            "key_objects": ["car", "street"],
-            "dangers": ["car"],
+            "key_objects": ["lorry", "pavement"],
+            "dangers": ["lorry"],
             "difficulty": "easy",
         },
         {
-            "camera": "Living room. Couch ahead, lamp to the left, clear path to door.",
+            "camera": "Living room. Chesterfield sofa ahead, sconce lamp to the left, unobstructed egress to hallway.",
             "voice": "LUMOS",
             "expect_decision": "describe_scene",
-            "key_objects": ["couch", "lamp", "door"],
+            "key_objects": ["sofa", "lamp", "hallway"],
             "dangers": [],
             "difficulty": "easy",
         },
         {
-            "camera": "Open book. Page reads: EMERGENCY EXIT THIS WAY ARROW RIGHT",
-            "voice": "read book",
+            "camera": "Open pharmacopoeia. Page reads: CONTRAINDICATED WITH MAOI INHIBITORS – CONSULT PHYSICIAN",
+            "voice": "read label",
             "expect_decision": "ocr_read",
-            "key_objects": ["book", "exit"],
+            "key_objects": ["pharmacopoeia", "contraindicated"],
+            "dangers": [],
+            "difficulty": "easy",
+        },
+        {
+            "camera": "Stairwell. Effluent pooling at the base. Corroded handrail on the right.",
+            "voice": "LUMOS",
+            "expect_decision": "alert_danger",
+            "key_objects": ["stairwell", "effluent", "handrail"],
+            "dangers": ["stairwell", "effluent"],
+            "difficulty": "easy",
+        },
+        {
+            "camera": "Medicine cabinet ajar. Unlabelled vials scattered across the vanity.",
+            "voice": "read label",
+            "expect_decision": "ocr_read",
+            "key_objects": ["vials", "cabinet"],
+            "dangers": [],
+            "difficulty": "easy",
+        },
+        {
+            "camera": "Municipal park. Wrought-iron bench to the left, ornamental fountain ahead, clear ambulatory path.",
+            "voice": "LUMOS",
+            "expect_decision": "describe_scene",
+            "key_objects": ["bench", "fountain", "path"],
+            "dangers": [],
+            "difficulty": "easy",
+        },
+        {
+            "camera": "Excavation site. Pneumatic jackhammer operating nearby. Perimeter caution tape breached.",
+            "voice": "LUMOS",
+            "expect_decision": "alert_danger",
+            "key_objects": ["jackhammer", "caution tape"],
+            "dangers": ["jackhammer"],
+            "difficulty": "easy",
+        },
+        {
+            "camera": "Laboratory. Autoclave venting superheated steam. Biohazard waste container overflowing.",
+            "voice": "LUMOS",
+            "expect_decision": "alert_danger",
+            "key_objects": ["autoclave", "biohazard"],
+            "dangers": ["autoclave", "biohazard"],
+            "difficulty": "easy",
+        },
+        {
+            "camera": "Corridor. Emergency evacuation placard on the wall reads: ASSEMBLY POINT – WEST ANNEXE",
+            "voice": "read sign",
+            "expect_decision": "ocr_read",
+            "key_objects": ["placard", "assembly", "annexe"],
             "dangers": [],
             "difficulty": "easy",
         },
     ],
 
-    # ── DEAF MODE (medium) ─────────────────────────────────────────────────
+    # ── DEAF MODE (medium difficulty, rarer vocabulary) ───────────────────
     "deaf_mode": [
         {
-            "microphone": "Doctor appointment at 3 PM in Conference Room B",
+            "microphone": "Your rheumatology consultation has been rescheduled to the haematology wing at fourteen hundred hours",
             "voice": "",
             "expect_decision": "speech_to_text",
-            "key_words": ["doctor", "3", "conference"],
+            "key_words": ["rheumatology", "haematology", "fourteen hundred"],
             "difficulty": "medium",
         },
         {
-            "microphone": "Watch out there is a car coming from behind you",
+            "microphone": "Immediate evacuation required — noxious fume ingress detected in the subterranean car park",
             "voice": "",
             "expect_decision": "speech_to_text",
-            "key_words": ["watch out", "car", "behind"],
+            "key_words": ["evacuation", "noxious", "subterranean"],
             "difficulty": "medium",
         },
         {
-            "microphone": "The package you ordered has arrived at the front desk",
+            "microphone": "Your cryogenic specimen consignment has arrived at the pathology intake dock",
             "voice": "",
             "expect_decision": "speech_to_text",
-            "key_words": ["package", "arrived", "front desk"],
+            "key_words": ["cryogenic", "consignment", "pathology"],
             "difficulty": "medium",
         },
         {
-            "microphone": "Fire alarm will be tested at noon today please do not panic",
+            "microphone": "Tarmac closure on runway two seven — all inbound aeronautical traffic rerouted to taxiway delta",
             "voice": "",
             "expect_decision": "speech_to_text",
-            "key_words": ["fire alarm", "noon", "today"],
+            "key_words": ["tarmac", "inbound", "taxiway"],
+            "difficulty": "medium",
+        },
+        {
+            "microphone": "Defibrillator malfunction reported in the cardiac catheterisation suite — standby technician en route",
+            "voice": "",
+            "expect_decision": "speech_to_text",
+            "key_words": ["defibrillator", "catheterisation", "technician"],
+            "difficulty": "medium",
+        },
+        {
+            "microphone": "Your statutory redundancy entitlement has been recalculated per the latest actuarial assessment",
+            "voice": "",
+            "expect_decision": "speech_to_text",
+            "key_words": ["redundancy", "entitlement", "actuarial"],
+            "difficulty": "medium",
+        },
+        {
+            "microphone": "Hyperbaric chamber pressure differential exceeds safe threshold — initiate controlled decompression immediately",
+            "voice": "",
+            "expect_decision": "speech_to_text",
+            "key_words": ["hyperbaric", "differential", "decompression"],
+            "difficulty": "medium",
+        },
+        {
+            "microphone": "Intravenous acetylcysteine infusion is commencing in bay four — monitor for anaphylactoid reaction",
+            "voice": "",
+            "expect_decision": "speech_to_text",
+            "key_words": ["acetylcysteine", "infusion", "anaphylactoid"],
             "difficulty": "medium",
         },
     ],
 
-    # ── MUTE MODE (hard) ───────────────────────────────────────────────────
+    # ── MUTE MODE (hard — NO hints, longer & rarer words) ────────────────
     "mute_mode": [
         {
-            "camera_frames": ["hand_H", "hand_E", "hand_L", "hand_L", "hand_O"],
-            "target_word": "HELLO",
+            "camera_frames": ["hand_Q", "hand_U", "hand_A", "hand_R", "hand_R", "hand_E", "hand_L"],
+            "target_word": "QUARREL",
             "voice": "",
             "expect_decision": "sign_speech",
             "difficulty": "hard",
         },
         {
-            "camera_frames": ["hand_H", "hand_E", "hand_L", "hand_P"],
-            "target_word": "HELP",
+            "camera_frames": ["hand_S", "hand_T", "hand_O", "hand_I", "hand_C"],
+            "target_word": "STOIC",
             "voice": "",
             "expect_decision": "sign_speech",
             "difficulty": "hard",
         },
         {
-            "camera_frames": ["hand_T", "hand_H", "hand_A", "hand_N", "hand_K", "hand_S"],
-            "target_word": "THANKS",
+            "camera_frames": ["hand_C", "hand_H", "hand_A", "hand_S", "hand_M"],
+            "target_word": "CHASM",
             "voice": "",
             "expect_decision": "sign_speech",
             "difficulty": "hard",
         },
         {
-            "camera_frames": ["hand_W", "hand_A", "hand_T", "hand_E", "hand_R"],
-            "target_word": "WATER",
+            "camera_frames": ["hand_P", "hand_L", "hand_U", "hand_M", "hand_B"],
+            "target_word": "PLUMB",
+            "voice": "",
+            "expect_decision": "sign_speech",
+            "difficulty": "hard",
+        },
+        {
+            "camera_frames": ["hand_F", "hand_R", "hand_O", "hand_N", "hand_D"],
+            "target_word": "FROND",
+            "voice": "",
+            "expect_decision": "sign_speech",
+            "difficulty": "hard",
+        },
+        {
+            "camera_frames": ["hand_S", "hand_W", "hand_A", "hand_T", "hand_H", "hand_E"],
+            "target_word": "SWATHE",
+            "voice": "",
+            "expect_decision": "sign_speech",
+            "difficulty": "hard",
+        },
+        {
+            "camera_frames": ["hand_K", "hand_N", "hand_A", "hand_V", "hand_E"],
+            "target_word": "KNAVE",
+            "voice": "",
+            "expect_decision": "sign_speech",
+            "difficulty": "hard",
+        },
+        {
+            "camera_frames": ["hand_G", "hand_A", "hand_U", "hand_N", "hand_T"],
+            "target_word": "GAUNT",
             "voice": "",
             "expect_decision": "sign_speech",
             "difficulty": "hard",
@@ -171,19 +273,19 @@ SCENARIOS: Dict[str, List[dict]] = {
 
 TASK_METADATA = {
     "blind_mode": {
-        "description": "Agent must interpret camera feed and produce correct audio output for a blind user. Includes scene description, OCR reading, and danger alerts.",
+        "description": "Agent interprets camera feed and produces correct audio output for a blind user. Covers scene description, OCR reading, and danger alerts. Uses domain-specific vocabulary.",
         "difficulty": "easy",
         "valid_decisions": ["describe_scene", "ocr_read", "alert_danger"],
         "action_schema": {"decision": "string", "output_text": "string", "confidence": "float [0,1]"},
     },
     "deaf_mode": {
-        "description": "Agent must relay spoken words as clear text for display on the OLED screen worn by a deaf user.",
+        "description": "Agent relays spoken words as clear text for display on the OLED screen of a deaf user. Uses rare and technical vocabulary to test precision.",
         "difficulty": "medium",
         "valid_decisions": ["speech_to_text"],
         "action_schema": {"decision": "string", "output_text": "string", "confidence": "float [0,1]"},
     },
     "mute_mode": {
-        "description": "Agent must recognise ASL finger-spelling frames one at a time, accumulate the word, and produce TTS speech output for a mute user.",
+        "description": "Agent recognises ASL finger-spelling frames one at a time and accumulates uncommon target words, then produces speech output. No hints provided — agent must infer from frames alone.",
         "difficulty": "hard",
         "valid_decisions": ["sign_speech"],
         "action_schema": {"decision": "string", "output_text": "string", "confidence": "float [0,1]"},
@@ -191,15 +293,10 @@ TASK_METADATA = {
 }
 
 # ---------------------------------------------------------------------------
-# ASL Letter Detector (deterministic — no model weight needed)
+# ASL Letter Detector (deterministic)
 # ---------------------------------------------------------------------------
 
 class ASLLetterDetector:
-    """
-    Deterministic letter extractor from frame description strings.
-    Frame format: "hand_X"  where X is A-Z.
-    Falls back gracefully for noisy descriptions.
-    """
     ALPHABET = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     def predict(self, frame_desc: str) -> str:
@@ -221,16 +318,15 @@ asl_detector = ASLLetterDetector()
 
 MAX_STEPS = 8
 
+
 class LumosEnv:
     def __init__(self):
-        self._s: dict = {}   # internal state (not named 'state' to avoid clash)
+        self._s: dict = {}
         self._init_state("blind_mode")
-
-    # ── private ────────────────────────────────────────────────────────────
 
     def _init_state(self, task_id: str):
         if task_id not in SCENARIOS:
-            raise ValueError(f"Unknown task_id '{task_id}'. Choose from: {list(SCENARIOS.keys())}")
+            raise ValueError(f"Unknown task_id '{task_id}'.")
         scenario = random.choice(SCENARIOS[task_id])
         self._s = {
             "episode_id": str(uuid.uuid4())[:8],
@@ -252,16 +348,16 @@ class LumosEnv:
 
         if task == "mute_mode":
             frames = data["camera_frames"]
-            idx = min(s["step"], len(frames) - 1)
-            camera = frames[idx]
+            idx = max(0, min(s["step"] - 1, len(frames) - 1))
+            camera = frames[idx] if s["step"] > 0 else frames[0]
             asl_letter = asl_detector.predict(camera)
-            spelled = asl_detector.spell(frames[: s["step"] + 1])
+            spelled = asl_detector.spell(frames[: s["step"]]) if s["step"] > 0 else ""
+            hint = ""  # NO hint for mute_mode
         else:
             camera = data.get("camera", "")
             asl_letter = None
             spelled = None
-
-        hint = self._make_hint()
+            hint = self._make_hint()
 
         return Observation(
             task_id=task,
@@ -277,7 +373,6 @@ class LumosEnv:
         )
 
     def _make_hint(self) -> str:
-        """Partial-progress hints to give the agent signal."""
         s = self._s
         task = s["task_id"]
         data = s["scenario"]
@@ -286,18 +381,13 @@ class LumosEnv:
         if task == "blind_mode":
             dangers = data.get("dangers", [])
             if dangers:
-                return f"Danger objects present: {', '.join(dangers)}"
-            return f"Key objects: {', '.join(data.get('key_objects', []))}"
+                return f"Hazard objects detected: {', '.join(dangers)}"
+            return f"Scene objects: {', '.join(data.get('key_objects', []))}"
         elif task == "deaf_mode":
             words = data["microphone"].split()
             visible = words[: max(1, step)]
             return f"Heard so far: '{' '.join(visible)}'"
-        elif task == "mute_mode":
-            seen = asl_detector.spell(data["camera_frames"][: step + 1])
-            return f"Letters detected so far: {seen}"
         return ""
-
-    # ── reward shaping ─────────────────────────────────────────────────────
 
     def _compute_reward(self, action: Action) -> Tuple[float, dict]:
         s = self._s
@@ -306,85 +396,79 @@ class LumosEnv:
         credits: dict = {}
         reward = 0.0
 
-        # confidence bonus (always, small)
-        credits["confidence"] = round(0.05 * action.confidence, 4)
+        credits["confidence"] = round(0.03 * action.confidence, 4)
         reward += credits["confidence"]
 
         if task == "blind_mode":
             correct_decision = action.decision == data["expect_decision"]
-            credits["correct_decision"] = 0.40 if correct_decision else 0.0
+            credits["correct_decision"] = 0.35 if correct_decision else -0.10
             reward += credits["correct_decision"]
 
-            # partial: did agent mention key objects in output?
             output_lower = action.output_text.lower()
             key_hits = sum(1 for k in data.get("key_objects", []) if k in output_lower)
-            frac = key_hits / max(1, len(data.get("key_objects", ["x"])))
-            credits["key_objects_mentioned"] = round(0.30 * frac, 4)
+            total_keys = max(1, len(data.get("key_objects", ["x"])))
+            frac = key_hits / total_keys
+            credits["key_objects_mentioned"] = round(0.32 * frac, 4)
             reward += credits["key_objects_mentioned"]
 
-            # danger flag
             dangers = data.get("dangers", [])
             if dangers:
                 danger_hits = sum(1 for d in dangers if d in output_lower)
-                credits["danger_flagged"] = round(0.25 * danger_hits / len(dangers), 4)
+                dfrac = danger_hits / len(dangers)
+                credits["danger_flagged"] = round(0.30 * dfrac, 4)
                 reward += credits["danger_flagged"]
-                if danger_hits == len(dangers):
+                if danger_hits == len(dangers) and correct_decision:
                     s["success"] = True
             else:
                 credits["danger_flagged"] = 0.0
-                if correct_decision and frac >= 0.5:
+                if correct_decision and frac >= 0.67:
                     s["success"] = True
 
         elif task == "deaf_mode":
             correct_decision = action.decision == "speech_to_text"
-            credits["correct_decision"] = 0.30 if correct_decision else 0.0
+            credits["correct_decision"] = 0.25 if correct_decision else -0.15
             reward += credits["correct_decision"]
 
             key_words = data.get("key_words", [])
             output_lower = action.output_text.lower()
             hits = sum(1 for kw in key_words if kw.lower() in output_lower)
             frac = hits / max(1, len(key_words))
-            credits["key_words_relayed"] = round(0.55 * frac, 4)
+            credits["key_words_relayed"] = round(0.60 * frac, 4)
             reward += credits["key_words_relayed"]
 
-            if correct_decision and frac >= 0.67:
+            if correct_decision and frac == 1.0:
                 s["success"] = True
 
         elif task == "mute_mode":
             correct_decision = action.decision == "sign_speech"
-            credits["correct_decision"] = 0.20 if correct_decision else 0.0
+            credits["correct_decision"] = 0.15 if correct_decision else -0.15
             reward += credits["correct_decision"]
 
             frames = data["camera_frames"]
             target = data["target_word"]
-            spelled_so_far = asl_detector.spell(frames[: s["step"] + 1])
-            target_so_far = target[: s["step"] + 1]
+            spelled_so_far = asl_detector.spell(frames[: s["step"]])
+            target_so_far = target[: s["step"]]
 
-            # letter-level accuracy
             matches = sum(a == b for a, b in zip(spelled_so_far, target_so_far))
             letter_acc = matches / max(1, len(target_so_far))
-            credits["letter_accuracy"] = round(0.40 * letter_acc, 4)
+            credits["letter_accuracy"] = round(0.45 * letter_acc, 4)
             reward += credits["letter_accuracy"]
 
-            # word-level output check (final steps)
-            if target.lower() in action.output_text.lower():
-                credits["word_recognised"] = 0.35
-                reward += 0.35
+            if target.lower() == action.output_text.strip().lower():
+                credits["word_recognised"] = 0.37
+                reward += 0.37
                 s["success"] = True
             else:
                 credits["word_recognised"] = 0.0
 
-            # penalty: wrong letter in output
             wrong = [c for c in action.output_text.upper() if c.isalpha() and c not in target]
             if wrong:
-                penalty = min(0.15, 0.03 * len(wrong))
+                penalty = min(0.20, 0.04 * len(wrong))
                 credits["wrong_letter_penalty"] = -round(penalty, 4)
                 reward -= penalty
 
         reward = float(np.clip(reward, 0.0, 1.0))
         return reward, credits
-
-    # ── public API ─────────────────────────────────────────────────────────
 
     def reset(self, task_id: str = "blind_mode") -> Observation:
         self._init_state(task_id)
@@ -454,12 +538,12 @@ app = FastAPI(
     title="LUMOS Assistive AI — OpenEnv",
     description=(
         "OpenEnv environment simulating real-world assistive AI tasks "
-        "for people with visual, hearing, and speech impairments."
+        "for people with visual, hearing, and speech impairments. "
+        "Features strict graders, domain-specific vocabulary, and hintless mute mode."
     ),
     version="1.0.0",
 )
 
-# One environment instance per server process (single-user HF Space)
 env = LumosEnv()
 
 
@@ -470,12 +554,12 @@ def root():
         "version": "1.0.0",
         "tasks": list(SCENARIOS.keys()),
         "endpoints": ["/reset", "/step", "/state", "/tasks", "/grader", "/baseline"],
+        "notes": "Strict graders. Mute mode has NO hints. Rare vocabulary used throughout.",
     }
 
 
 @app.post("/reset")
 def reset_endpoint(task_id: str = "blind_mode", fixed_idx: int = -1):
-    """Reset environment. fixed_idx>=0 pins a specific scenario for reproducibility."""
     global env
     import uuid as _uuid
     env = LumosEnv()
@@ -498,7 +582,6 @@ def reset_endpoint(task_id: str = "blind_mode", fixed_idx: int = -1):
 
 @app.post("/step")
 def step_endpoint(action: Action):
-    """Take one step in the environment."""
     obs, reward, done, info = env.step(action)
     return {
         "observation": obs.model_dump(),
@@ -510,13 +593,11 @@ def step_endpoint(action: Action):
 
 @app.get("/state")
 def state_endpoint():
-    """Return current internal state."""
     return env.get_state()
 
 
 @app.get("/tasks")
 def tasks_endpoint():
-    """Return list of tasks and their action schemas."""
     return [
         {
             "id": task_id,
@@ -532,7 +613,6 @@ def tasks_endpoint():
 
 @app.post("/grader")
 def grader_endpoint():
-    """Return grader score for the current episode."""
     return {
         "grader_score": env.grader_score(),
         "success": env._s.get("success", False),
@@ -543,20 +623,13 @@ def grader_endpoint():
 
 @app.get("/baseline")
 def baseline_endpoint():
-    """
-    Run LLM agent against all 3 tasks. Returns reproducible scores.
-    Requires HF_TOKEN (or OPENAI_API_KEY), API_BASE_URL, MODEL_NAME env vars.
-    """
     import json
-    api_key      = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY", "")
+    api_key = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY", "")
     api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    model_name   = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
+    model_name = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
 
     if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="HF_TOKEN not set. Add it as an HF Space Secret.",
-        )
+        raise HTTPException(status_code=500, detail="HF_TOKEN not set.")
 
     try:
         from openai import OpenAI
@@ -564,29 +637,28 @@ def baseline_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI client error: {e}")
 
-    # Fixed scenario index per task — same scenario every run = reproducible
     FIXED_IDX = {"blind_mode": 0, "deaf_mode": 0, "mute_mode": 2}
 
     SYSTEM_PROMPT = """You are an AI agent controlling LUMOS Assistive Glasses for people with disabilities.
 
 Rules:
 - blind_mode → decision: describe_scene | ocr_read | alert_danger
-  * alert_danger: hazards (stove, knife, car, wet floor, machinery, traffic)
-  * ocr_read: voice_command contains "read" or camera shows text
-  * describe_scene: safe, general navigation
-- deaf_mode → decision: speech_to_text. Relay ALL key info from microphone.
-- mute_mode → decision: sign_speech. Output the word being spelled.
+  * alert_danger: hazards present (burner, cleaver, lorry, jackhammer, autoclave, effluent, biohazard)
+  * ocr_read: voice_command contains 'read' or camera shows text/signage
+  * describe_scene: safe navigation without hazards
+- deaf_mode → decision: speech_to_text. Relay ALL content verbatim — including rare technical terms.
+- mute_mode → decision: sign_speech. Output the COMPLETE word spelled by all frames seen so far.
+  No hints are given — deduce the word from the asl_letter sequence in spelled_word.
 
 Respond with valid JSON only:
-{"decision": "<decision>", "output_text": "<output>", "confidence": <0.0-1.0>}"""
+{"decision": "<decision>", "output_text": "<o>", "confidence": <0.0-1.0>}"""
 
     results = {}
 
     for task_id in ["blind_mode", "deaf_mode", "mute_mode"]:
         fixed_idx = FIXED_IDX[task_id]
-        test_env = LumosEnv()
-        # Pin to fixed scenario for reproducibility
         import uuid as _uuid
+        test_env = LumosEnv()
         test_env._s = {
             "episode_id": str(_uuid.uuid4())[:8],
             "task_id": task_id,
@@ -611,24 +683,23 @@ Respond with valid JSON only:
                 f"Hint: {obs.hint}\n"
                 f"Step: {obs.step_number}"
             )
-
             try:
                 resp = client.chat.completions.create(
                     model=model_name,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user",   "content": user_msg},
+                        {"role": "user", "content": user_msg},
                     ],
                     max_tokens=120,
                     temperature=0,
                 )
-                raw   = resp.choices[0].message.content.strip()
+                raw = resp.choices[0].message.content.strip()
                 clean = raw.lstrip("```json").lstrip("```").rstrip("```").strip()
                 parsed = json.loads(clean)
                 action = Action(
-                    decision    = str(parsed.get("decision", "describe_scene")),
-                    output_text = str(parsed.get("output_text", "")),
-                    confidence  = float(parsed.get("confidence", 0.8)),
+                    decision=str(parsed.get("decision", "describe_scene")),
+                    output_text=str(parsed.get("output_text", "")),
+                    confidence=float(parsed.get("confidence", 0.8)),
                 )
             except Exception:
                 action = Action(decision="describe_scene", output_text="", confidence=0.5)
@@ -639,21 +710,21 @@ Respond with valid JSON only:
 
         results[task_id] = {
             "grader_score": round(final_info.get("grader_score", 0.0), 4),
-            "success":      final_info.get("success", False),
+            "success": final_info.get("success", False),
         }
 
     avg = round(sum(r["grader_score"] for r in results.values()) / 3, 4)
     return {
-        "model":        model_name,
-        "temperature":  0,
+        "model": model_name,
+        "temperature": 0,
         "reproducible": True,
-        "scores":       results,
+        "scores": results,
         "average_score": avg,
     }
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry point  (root app.py variant)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
