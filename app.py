@@ -565,7 +565,7 @@ def baseline_endpoint():
         raise HTTPException(status_code=500, detail=f"OpenAI client error: {e}")
 
     # Fixed scenario index per task — same scenario every run = reproducible
-    FIXED_IDX = {"blind_mode": 0, "deaf_mode": 5, "mute_mode": 2}
+    FIXED_IDX = {"blind_mode": 0, "deaf_mode": 0, "mute_mode": 2}
 
     SYSTEM_PROMPT = """You are an AI agent controlling LUMOS Assistive Glasses for people with disabilities.
 

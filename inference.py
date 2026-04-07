@@ -1,70 +1,53 @@
 """
 inference.py — LUMOS Assistive AI OpenEnv
-==========================================
-MANDATORY environment variables (set as HF Space Secrets):
-    API_BASE_URL   LLM API endpoint  (e.g. https://router.huggingface.co/v1)
-    MODEL_NAME     Model identifier   (e.g. meta-llama/Llama-3.3-70B-Instruct)
-    HF_TOKEN       HuggingFace token
-
-Optional:
-    BASE_ENV_URL   Where LUMOS server runs (default: http://localhost:7860)
-
-Run:
-    uvicorn app:app --host 0.0.0.0 --port 7860
-    python inference.py
+Mandatory stdout format:
+  [START] task=<name> env=<benchmark> model=<model>
+  [STEP] step=N action=... reward=0.00 done=false error=null
+  [END] success=true steps=N score=0.00 rewards=0.00,...
 """
 
 import json
 import os
 import sys
 import time
+from typing import List, Optional
 
 import requests
+from openai import OpenAI
 
-# ---------------------------------------------------------------------------
-# Config — read ONLY from environment variables
-# ---------------------------------------------------------------------------
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
 MODEL_NAME   = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
 BASE_ENV_URL = os.getenv("BASE_ENV_URL", "http://localhost:7860").rstrip("/")
+BENCHMARK    = "lumos-assistive-ai"
+MAX_STEPS    = 8
 
-TEMPERATURE = 0.0   # deterministic / reproducible
+BASELINE_IDX = {"blind_mode": 0, "deaf_mode": 0, "mute_mode": 2}  # fixed: deaf_mode 5→0
 
-# Fixed scenario indices — same scenario every run = reproducible scores
-BASELINE_IDX = {"blind_mode": 0, "deaf_mode": 5, "mute_mode": 2}
-
-# ---------------------------------------------------------------------------
-# System prompt
-# ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """You are an AI agent controlling LUMOS Assistive Glasses for people with disabilities.
+- blind_mode: decision must be one of: describe_scene | ocr_read | alert_danger
+- deaf_mode: always use speech_to_text and relay ALL key info from microphone field
+- mute_mode: always use sign_speech and output the exact word being spelled
+JSON only: {"decision":"...","output_text":"...","confidence":0.9}"""
 
-RULES:
-- blind_mode → decision must be one of: describe_scene | ocr_read | alert_danger
-  * alert_danger: any hazard (stove, knife, car, wet floor, machinery, traffic, stairs)
-  * ocr_read: when voice_command contains "read" or camera shows text/document
-  * describe_scene: safe environment, general navigation
-- deaf_mode → decision: speech_to_text. Relay ALL key info from microphone field.
-- mute_mode → decision: sign_speech.
-  * asl_letter shows the current frame letter (may be ambiguous, e.g. "M or N?")
-  * spelled_word shows letters accumulated so far
-  * hint tells you frames remaining
-  * DO NOT guess the full word until hint says "All frames shown"
-  * When all frames shown, output ONLY the exact word — no extra text
 
-Respond ONLY with valid JSON, no markdown:
-{"decision": "<decision>", "output_text": "<your output>", "confidence": <0.0-1.0>}"""
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
-# ---------------------------------------------------------------------------
-# Environment API helpers
-# ---------------------------------------------------------------------------
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+
 
 def env_reset(task_id: str, fixed_idx: int) -> dict:
-    r = requests.post(
-        f"{BASE_ENV_URL}/reset",
-        params={"task_id": task_id, "fixed_idx": fixed_idx},
-        timeout=30,
-    )
+    r = requests.post(f"{BASE_ENV_URL}/reset", params={"task_id": task_id, "fixed_idx": fixed_idx}, timeout=30)
     r.raise_for_status()
     return r.json()
 
@@ -75,23 +58,13 @@ def env_step(action: dict) -> dict:
     return r.json()
 
 
-def env_grader() -> dict:
-    r = requests.post(f"{BASE_ENV_URL}/grader", timeout=30)
-    r.raise_for_status()
-    return r.json()
-
-
-# ---------------------------------------------------------------------------
-# LLM call — client is created inside, not at module level
-# ---------------------------------------------------------------------------
-
-def call_llm(obs: dict, client) -> dict:
+def call_llm(obs: dict, client: OpenAI) -> dict:
     user_msg = (
         f"Task: {obs.get('task_id')}\n"
         f"Camera: {obs.get('camera_feed', '')}\n"
         f"Microphone: {obs.get('microphone', '')}\n"
         f"Voice command: {obs.get('voice_command', '')}\n"
-        f"ASL letter (may be ambiguous): {obs.get('asl_letter')}\n"
+        f"ASL letter: {obs.get('asl_letter')}\n"
         f"Spelled so far: {obs.get('spelled_word')}\n"
         f"Hint: {obs.get('hint', '')}\n"
         f"Step: {obs.get('step_number', 0)}"
@@ -101,163 +74,114 @@ def call_llm(obs: dict, client) -> dict:
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_msg},
+                {"role": "user", "content": user_msg},
             ],
-            temperature=TEMPERATURE,
+            temperature=0.0,
             max_tokens=120,
         )
-        raw   = resp.choices[0].message.content or "{}"
+        raw = resp.choices[0].message.content or "{}"
         clean = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         return json.loads(clean)
     except Exception as exc:
-        print(f"  [WARN] LLM error: {exc}", flush=True)
+        print(f"[DEBUG] LLM error: {exc}", flush=True)
         return {"decision": "describe_scene", "output_text": "", "confidence": 0.5}
 
-
-# ---------------------------------------------------------------------------
-# Run one episode
-# ---------------------------------------------------------------------------
-
-def run_episode(task_id: str, client) -> dict:
-    MAX_STEPS = 12
-    print(f"\n{'='*50}", flush=True)
-    print(f"  Task: {task_id.upper()}", flush=True)
-    print(f"{'='*50}", flush=True)
-
-    fixed_idx = BASELINE_IDX[task_id]
-    obs  = env_reset(task_id, fixed_idx)
-    done = False
-    step = 0
-
-    for step in range(1, MAX_STEPS + 1):
-        if done:
-            break
-
-        action = call_llm(obs, client)
-        decision    = str(action.get("decision", "describe_scene"))
-        output_text = str(action.get("output_text", ""))
-        confidence  = float(max(0.0, min(1.0, action.get("confidence", 0.8))))
-
-        print(f"  Step {step:02d} | {decision:20s} | '{output_text[:45]}'", flush=True)
-
-        result = env_step({
-            "decision":    decision,
-            "output_text": output_text,
-            "confidence":  confidence,
-        })
-
-        obs   = result.get("observation", obs)
-        done  = bool(result.get("done", False))
-        info  = result.get("info", {})
-        reward = float(result.get("reward", 0.0))
-
-        print(
-            f"           reward={reward:.4f} | "
-            f"grader={info.get('grader_score', 0):.4f} | "
-            f"success={info.get('success', False)}",
-            flush=True,
-        )
-
-        if done:
-            break
-
-    grader = env_grader()
-    score  = float(grader.get("grader_score", 0.0))
-    print(f"\n  Result: score={score:.4f} | success={grader.get('success', False)} | steps={step}", flush=True)
-
-    return {
-        "task_id":      task_id,
-        "grader_score": round(score, 4),
-        "success":      grader.get("success", False),
-        "steps_taken":  step,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Server readiness check
-# ---------------------------------------------------------------------------
 
 def wait_for_server(retries: int = 15, delay: float = 3.0) -> bool:
     for i in range(retries):
         try:
             r = requests.get(f"{BASE_ENV_URL}/", timeout=5)
             if r.status_code == 200:
-                print(f"  Server ready at {BASE_ENV_URL}", flush=True)
                 return True
         except requests.ConnectionError:
             pass
-        print(f"  Waiting for server... ({i + 1}/{retries})", flush=True)
         time.sleep(delay)
     return False
 
 
-# ---------------------------------------------------------------------------
-# Main — ALL setup happens here, nothing at module level
-# ---------------------------------------------------------------------------
+def run_episode(task_id: str, client: OpenAI) -> dict:
+    fixed_idx = BASELINE_IDX[task_id]
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
+
+    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+
+    try:
+        obs = env_reset(task_id, fixed_idx)
+        done = False
+
+        for step in range(1, MAX_STEPS + 1):
+            if done:
+                break
+
+            parsed = call_llm(obs, client)
+            decision    = str(parsed.get("decision", "describe_scene"))
+            output_text = str(parsed.get("output_text", ""))
+            confidence  = float(max(0.0, min(1.0, parsed.get("confidence", 0.8))))
+
+            action_str = f"{decision}|{output_text[:30]}"
+            result = env_step({"decision": decision, "output_text": output_text, "confidence": confidence})
+
+            obs     = result.get("observation", obs)
+            reward  = float(result.get("reward", 0.0))
+            done    = bool(result.get("done", False))
+            info    = result.get("info", {})
+            error   = None
+            steps_taken = step
+
+            rewards.append(reward)
+            log_step(step=step, action=action_str, reward=reward, done=done, error=error)
+
+            if done:
+                success = bool(info.get("success", False))
+                score   = float(info.get("grader_score", 0.0))
+                break
+
+        if not rewards:
+            score = 0.0
+        elif not done:
+            score = float(sum(rewards) / len(rewards))
+
+    except Exception as e:
+        print(f"[DEBUG] Episode error: {e}", flush=True)
+        score = 0.0
+        success = False
+
+    log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+    return {"task_id": task_id, "grader_score": round(score, 4), "success": success, "steps_taken": steps_taken}
+
 
 def main():
-    print("\nLUMOS Assistive AI — OpenEnv Inference", flush=True)
-    print(f"  Model    : {MODEL_NAME}", flush=True)
-    print(f"  API base : {API_BASE_URL}", flush=True)
-    print(f"  Env URL  : {BASE_ENV_URL}", flush=True)
-
-    # Validate API key BEFORE creating client
     if not API_KEY:
-        print("\n[ERROR] HF_TOKEN is not set.", flush=True)
-        print("  Windows: $env:HF_TOKEN='hf_...'", flush=True)
-        print("  Linux:   export HF_TOKEN=hf_...", flush=True)
+        print("[ERROR] HF_TOKEN is not set.", flush=True)
         sys.exit(1)
 
-    # Create OpenAI client INSIDE main(), after validation
     try:
-        from openai import OpenAI
         client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     except Exception as e:
-        print(f"\n[ERROR] Failed to create OpenAI client: {e}", flush=True)
+        print(f"[ERROR] Failed to create OpenAI client: {e}", flush=True)
         sys.exit(1)
 
-    # Wait for the environment server to be ready
     if not wait_for_server():
-        print(f"\n[ERROR] Cannot reach server at {BASE_ENV_URL}", flush=True)
+        print(f"[ERROR] Cannot reach server at {BASE_ENV_URL}", flush=True)
         sys.exit(1)
 
-    # Run all 3 tasks
     results = [run_episode(tid, client) for tid in ["blind_mode", "deaf_mode", "mute_mode"]]
     avg = round(sum(r["grader_score"] for r in results) / len(results), 4)
 
-    print(f"\n{'='*50}", flush=True)
-    print("  FINAL SCORES", flush=True)
-    print(f"{'='*50}", flush=True)
-    for r in results:
-        icon = "✓" if r["success"] else "✗"
-        print(
-            f"  {icon} {r['task_id']:15s} | "
-            f"score={r['grader_score']:.4f} | steps={r['steps_taken']}",
-            flush=True,
-        )
-    print(f"\n  Average : {avg:.4f}", flush=True)
-    print(f"  Model   : {MODEL_NAME}", flush=True)
-    print(f"  Temp    : {TEMPERATURE} (deterministic)", flush=True)
-    print(f"  Reproducible: Yes (fixed scenario index + temperature=0)\n", flush=True)
-
     output = {
-        "model":        MODEL_NAME,
-        "temperature":  TEMPERATURE,
+        "model": MODEL_NAME,
+        "temperature": 0.0,
         "reproducible": True,
-        "scores": {
-            r["task_id"]: {
-                "grader_score": r["grader_score"],
-                "success":      r["success"],
-            }
-            for r in results
-        },
+        "scores": {r["task_id"]: {"grader_score": r["grader_score"], "success": r["success"]} for r in results},
         "average_score": avg,
     }
     print(json.dumps(output, indent=2), flush=True)
 
     with open("baseline_scores.json", "w") as f:
         json.dump(output, f, indent=2)
-    print("\n  Saved to baseline_scores.json", flush=True)
 
 
 if __name__ == "__main__":
