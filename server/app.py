@@ -10,6 +10,11 @@ Tasks:
   Task 3 (hard)   — Mute Mode    : ASL finger-spelling → speech output
 
 Endpoints: /reset  /step  /state  /tasks  /grader  /baseline
+
+SCORING FIX: All grader scores are strictly in (0.0, 1.0) exclusive.
+  - Success score capped at 0.99 (not 1.0)
+  - Failure floor at 0.01 (not 0.0)
+  - Step rewards clipped to (0.01, 0.99)
 """
 
 from __future__ import annotations
@@ -23,6 +28,18 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import uvicorn
+
+# ---------------------------------------------------------------------------
+# Score bounds — STRICTLY between 0 and 1 (Phase 2 requirement)
+# ---------------------------------------------------------------------------
+SCORE_MIN = 0.01   # floor: never return 0.0
+SCORE_MAX = 0.99   # ceiling: never return 1.0
+
+
+def clip_score(score: float) -> float:
+    """Clip score to strictly open interval (0, 1)."""
+    return float(np.clip(score, SCORE_MIN, SCORE_MAX))
+
 
 # ---------------------------------------------------------------------------
 # Pydantic Models (OpenEnv spec)
@@ -61,12 +78,12 @@ class Reward(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Scenario Data  (harder vocabulary, stricter requirements)
+# Scenario Data
 # ---------------------------------------------------------------------------
 
 SCENARIOS: Dict[str, List[dict]] = {
 
-    # ── BLIND MODE (easy → medium difficulty) ─────────────────────────────
+    # ── BLIND MODE (easy) ──────────────────────────────────────────────────
     "blind_mode": [
         {
             "camera": "Kitchen counter. Gas burner alight on the left. Cleaver balanced near the edge.",
@@ -150,7 +167,7 @@ SCENARIOS: Dict[str, List[dict]] = {
         },
     ],
 
-    # ── DEAF MODE (medium difficulty, rarer vocabulary) ───────────────────
+    # ── DEAF MODE (medium) ─────────────────────────────────────────────────
     "deaf_mode": [
         {
             "microphone": "Your rheumatology consultation has been rescheduled to the haematology wing at fourteen hundred hours",
@@ -210,18 +227,11 @@ SCENARIOS: Dict[str, List[dict]] = {
         },
     ],
 
-    # ── MUTE MODE (hard — NO hints, longer & rarer words) ────────────────
+    # ── MUTE MODE (hard) ───────────────────────────────────────────────────
     "mute_mode": [
         {
             "camera_frames": ["hand_Q", "hand_U", "hand_A", "hand_R", "hand_R", "hand_E", "hand_L"],
             "target_word": "QUARREL",
-            "voice": "",
-            "expect_decision": "sign_speech",
-            "difficulty": "hard",
-        },
-        {
-            "camera_frames": ["hand_V", "hand_E", "hand", "hand_X", "hand_I", "hand_L", "hand_L", "hand_E"],
-            "target_word": "VEXILLE",
             "voice": "",
             "expect_decision": "sign_speech",
             "difficulty": "hard",
@@ -268,24 +278,31 @@ SCENARIOS: Dict[str, List[dict]] = {
             "expect_decision": "sign_speech",
             "difficulty": "hard",
         },
+        {
+            "camera_frames": ["hand_G", "hand_A", "hand_U", "hand_N", "hand_T"],
+            "target_word": "GAUNT",
+            "voice": "",
+            "expect_decision": "sign_speech",
+            "difficulty": "hard",
+        },
     ],
 }
 
 TASK_METADATA = {
     "blind_mode": {
-        "description": "Agent interprets camera feed and produces correct audio output for a blind user. Covers scene description, OCR reading, and danger alerts. Uses domain-specific vocabulary.",
+        "description": "Agent interprets camera feed and produces correct audio output for a blind user.",
         "difficulty": "easy",
         "valid_decisions": ["describe_scene", "ocr_read", "alert_danger"],
         "action_schema": {"decision": "string", "output_text": "string", "confidence": "float [0,1]"},
     },
     "deaf_mode": {
-        "description": "Agent relays spoken words as clear text for display on the OLED screen of a deaf user. Uses rare and technical vocabulary to test precision.",
+        "description": "Agent relays spoken words as clear text for display on the OLED screen.",
         "difficulty": "medium",
         "valid_decisions": ["speech_to_text"],
         "action_schema": {"decision": "string", "output_text": "string", "confidence": "float [0,1]"},
     },
     "mute_mode": {
-        "description": "Agent recognises ASL finger-spelling frames one at a time and accumulates uncommon target words, then produces speech output. No hints provided — agent must infer from frames alone.",
+        "description": "Agent recognises ASL finger-spelling frames and produces speech output.",
         "difficulty": "hard",
         "valid_decisions": ["sign_speech"],
         "action_schema": {"decision": "string", "output_text": "string", "confidence": "float [0,1]"},
@@ -324,8 +341,6 @@ class LumosEnv:
         self._s: dict = {}
         self._init_state("blind_mode")
 
-    # ── private ────────────────────────────────────────────────────────────
-
     def _init_state(self, task_id: str):
         if task_id not in SCENARIOS:
             raise ValueError(f"Unknown task_id '{task_id}'.")
@@ -354,7 +369,7 @@ class LumosEnv:
             camera = frames[idx] if s["step"] > 0 else frames[0]
             asl_letter = asl_detector.predict(camera)
             spelled = asl_detector.spell(frames[: s["step"]]) if s["step"] > 0 else ""
-            hint = ""  # ← NO hint for mute_mode (harder)
+            hint = ""
         else:
             camera = data.get("camera", "")
             asl_letter = None
@@ -391,16 +406,17 @@ class LumosEnv:
             return f"Heard so far: '{' '.join(visible)}'"
         return ""
 
-    # ── reward shaping (stricter) ─────────────────────────────────────────
-
     def _compute_reward(self, action: Action) -> Tuple[float, dict]:
+        """
+        Compute per-step reward, clipped to (SCORE_MIN, SCORE_MAX).
+        Raw reward is computed then clipped so it never equals 0.0 or 1.0.
+        """
         s = self._s
         task = s["task_id"]
         data = s["scenario"]
         credits: dict = {}
         reward = 0.0
 
-        # small confidence bonus
         credits["confidence"] = round(0.03 * action.confidence, 4)
         reward += credits["confidence"]
 
@@ -413,7 +429,6 @@ class LumosEnv:
             key_hits = sum(1 for k in data.get("key_objects", []) if k in output_lower)
             total_keys = max(1, len(data.get("key_objects", ["x"])))
             frac = key_hits / total_keys
-            # Require ALL key objects for full credit (stricter)
             credits["key_objects_mentioned"] = round(0.32 * frac, 4)
             reward += credits["key_objects_mentioned"]
 
@@ -423,12 +438,10 @@ class LumosEnv:
                 dfrac = danger_hits / len(dangers)
                 credits["danger_flagged"] = round(0.30 * dfrac, 4)
                 reward += credits["danger_flagged"]
-                # Stricter: require ALL dangers mentioned
                 if danger_hits == len(dangers) and correct_decision:
                     s["success"] = True
             else:
                 credits["danger_flagged"] = 0.0
-                # Stricter: require ≥ 2/3 key objects AND correct decision
                 if correct_decision and frac >= 0.67:
                     s["success"] = True
 
@@ -444,7 +457,6 @@ class LumosEnv:
             credits["key_words_relayed"] = round(0.60 * frac, 4)
             reward += credits["key_words_relayed"]
 
-            # Stricter: require ALL key words
             if correct_decision and frac == 1.0:
                 s["success"] = True
 
@@ -463,7 +475,6 @@ class LumosEnv:
             credits["letter_accuracy"] = round(0.45 * letter_acc, 4)
             reward += credits["letter_accuracy"]
 
-            # Stricter: exact full-word match required
             if target.lower() == action.output_text.strip().lower():
                 credits["word_recognised"] = 0.37
                 reward += 0.37
@@ -471,17 +482,34 @@ class LumosEnv:
             else:
                 credits["word_recognised"] = 0.0
 
-            # Heavier penalty for wrong letters
             wrong = [c for c in action.output_text.upper() if c.isalpha() and c not in target]
             if wrong:
                 penalty = min(0.20, 0.04 * len(wrong))
                 credits["wrong_letter_penalty"] = -round(penalty, 4)
                 reward -= penalty
 
-        reward = float(np.clip(reward, 0.0, 1.0))
+        # ── CRITICAL FIX: clip to strictly open interval (0, 1) ──────────
+        reward = clip_score(reward)
         return reward, credits
 
-    # ── public API ─────────────────────────────────────────────────────────
+    def _compute_grader_score(self) -> float:
+        """
+        Compute grader score strictly in (0, 1) — never 0.0 or 1.0.
+
+        SUCCESS → 0.99 (not 1.0)
+        PARTIAL → mean of trajectory rewards, floored at 0.01
+        NO STEPS → 0.01 (not 0.0)
+        """
+        traj = self._s.get("trajectory_rewards", [])
+
+        if self._s.get("success"):
+            return SCORE_MAX  # 0.99
+
+        if not traj:
+            return SCORE_MIN  # 0.01
+
+        raw = float(np.mean(traj))
+        return clip_score(raw)
 
     def reset(self, task_id: str = "blind_mode") -> Observation:
         self._init_state(task_id)
@@ -511,10 +539,7 @@ class LumosEnv:
             extra["audio_output"] = f"TTS: {data['target_word']}"
 
         obs = self._build_obs(extra)
-
-        traj = self._s["trajectory_rewards"]
-        grader_score = 1.0 if self._s["success"] else float(np.mean(traj))
-        grader_score = float(np.clip(grader_score, 0.0, 1.0))
+        grader_score = self._compute_grader_score()
 
         info = {
             "grader_score": grader_score,
@@ -536,11 +561,7 @@ class LumosEnv:
         }
 
     def grader_score(self) -> float:
-        traj = self._s.get("trajectory_rewards", [0.0])
-        if self._s.get("success"):
-            return 1.0
-        score = float(np.mean(traj)) if traj else 0.0
-        return float(np.clip(score, 0.0, 1.0))
+        return self._compute_grader_score()
 
 
 # ---------------------------------------------------------------------------
@@ -551,8 +572,7 @@ app = FastAPI(
     title="LUMOS Assistive AI — OpenEnv",
     description=(
         "OpenEnv environment simulating real-world assistive AI tasks "
-        "for people with visual, hearing, and speech impairments. "
-        "Features strict graders, domain-specific vocabulary, and hintless mute mode."
+        "for people with visual, hearing, and speech impairments."
     ),
     version="1.0.0",
 )
@@ -567,13 +587,12 @@ def root():
         "version": "1.0.0",
         "tasks": list(SCENARIOS.keys()),
         "endpoints": ["/reset", "/step", "/state", "/tasks", "/grader", "/baseline"],
-        "notes": "Strict graders. Mute mode has NO hints. Rare vocabulary used throughout.",
+        "score_range": f"({SCORE_MIN}, {SCORE_MAX}) exclusive",
     }
 
 
 @app.post("/reset")
 def reset_endpoint(task_id: str = "blind_mode", fixed_idx: int = -1):
-    """Reset environment. fixed_idx>=0 pins a specific scenario for reproducibility."""
     global env
     import uuid as _uuid
     env = LumosEnv()
@@ -596,7 +615,6 @@ def reset_endpoint(task_id: str = "blind_mode", fixed_idx: int = -1):
 
 @app.post("/step")
 def step_endpoint(action: Action):
-    """Take one step in the environment."""
     obs, reward, done, info = env.step(action)
     return {
         "observation": obs.model_dump(),
@@ -608,13 +626,11 @@ def step_endpoint(action: Action):
 
 @app.get("/state")
 def state_endpoint():
-    """Return current internal state."""
     return env.get_state()
 
 
 @app.get("/tasks")
 def tasks_endpoint():
-    """Return list of tasks and their action schemas."""
     return [
         {
             "id": task_id,
@@ -630,9 +646,9 @@ def tasks_endpoint():
 
 @app.post("/grader")
 def grader_endpoint():
-    """Return grader score for the current episode."""
+    score = env.grader_score()
     return {
-        "grader_score": env.grader_score(),
+        "grader_score": score,
         "success": env._s.get("success", False),
         "steps_taken": env._s.get("step", 0),
         "episode_id": env._s.get("episode_id"),
@@ -641,20 +657,13 @@ def grader_endpoint():
 
 @app.get("/baseline")
 def baseline_endpoint():
-    """
-    Run LLM agent against all 3 tasks. Returns reproducible scores.
-    Requires HF_TOKEN (or OPENAI_API_KEY), API_BASE_URL, MODEL_NAME env vars.
-    """
     import json
     api_key = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY", "")
     api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
     model_name = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
 
     if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="HF_TOKEN not set. Add it as an HF Space Secret.",
-        )
+        raise HTTPException(status_code=500, detail="HF_TOKEN not set.")
 
     try:
         from openai import OpenAI
@@ -673,7 +682,6 @@ Rules:
   * describe_scene: safe navigation without hazards
 - deaf_mode → decision: speech_to_text. Relay ALL content verbatim — including rare technical terms.
 - mute_mode → decision: sign_speech. Output the COMPLETE word spelled by all frames seen so far.
-  No hints are given — deduce the word from the asl_letter sequence in spelled_word.
 
 Respond with valid JSON only:
 {"decision": "<decision>", "output_text": "<output>", "confidence": <0.0-1.0>}"""
@@ -734,7 +742,7 @@ Respond with valid JSON only:
                 break
 
         results[task_id] = {
-            "grader_score": round(final_info.get("grader_score", 0.0), 4),
+            "grader_score": round(final_info.get("grader_score", SCORE_MIN), 4),
             "success": final_info.get("success", False),
         }
 
@@ -749,7 +757,7 @@ Respond with valid JSON only:
 
 
 # ---------------------------------------------------------------------------
-# Entry point  (server/app.py variant)
+# Entry point
 # ---------------------------------------------------------------------------
 
 def main():
@@ -758,4 +766,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(app, host="0.0.0.0", port=7860)
