@@ -1,82 +1,168 @@
 name: lumos-assistive-ai
-version: 1.0.0
+version: 2.0.0
 description: >
-  OpenEnv environment simulating real-world assistive AI tasks for people
-  with visual impairments (Blind Mode), hearing impairments (Deaf Mode),
-  and speech impairments (Mute Mode / ASL finger-spelling).
+  POMDP-based RL environment simulating an AI-powered wearable smart glasses
+  system for people with visual (blind_navigate), hearing (deaf_relay), and
+  speech (asl_translate) impairments.
+
+  The agent operates under partial observability with stochastic noise,
+  dynamic world state transitions, and safety-critical decisions.
+  Scenarios are procedurally generated (combinatorially infinite via templates and pools).
+  There is NO required action sequence — the agent must reason freely.
+
 author: Pranay Pelapkar
 tags:
   - openenv
   - assistive-technology
   - accessibility
-  - computer-vision
+  - pomdp
+  - partial-observability
+  - safety-critical
   - asl
   - social-impact
 
 tasks:
-  - id: blind_mode
+
+  - id: blind_navigate
     description: >
-      Agent interprets camera feed and produces correct audio output for a
-      blind user. Covers scene description, OCR reading, and danger alerts.
+      Agent controls wearable AI glasses for a blind user navigating real
+      environments. Scene starts with LOW clarity (0.15–0.42). Agent must
+      choose between scan (improves global clarity), focus_object (reveals
+      hazard/text detail on one object), alert_danger, describe_path,
+      read_text, or report_failure. World state changes after every action.
+      Multiple valid trajectories. Latency penalised.
     difficulty: easy
-    max_steps: 8
-    valid_decisions:
-      - describe_scene
-      - ocr_read
+    max_steps: 10
+    score_range: [0.0, 1.0]
+    valid_actions:
+      - scan
+      - focus_object
       - alert_danger
+      - describe_path
+      - read_text
+      - report_failure
+    state_transitions:
+      scan: "Global clarity += Uniform(0.08, 0.18)"
+      focus_object: "Per-object clarity += Uniform(0.28, 0.48)"
+      alert_danger: "Removes matched hazards from active_hazards list"
+    uncertainty:
+      scene_clarity: "Starts at Uniform(0.15, 0.42). Dark scenario caps at 0.28."
+      noise_level: "Uniform(0.20, 0.65). Heavy noise: Uniform(0.82, 0.92)."
+    failure_mode: "Dark scene — correct response is report_failure"
 
-  - id: deaf_mode
+  - id: deaf_relay
     description: >
-      Agent relays spoken words as clear text for display on the user's
-      OLED screen. Must preserve key information from speech transcript.
+      Agent relays speech to a deaf user's OLED display. Audio arrives in
+      word-chunks per listen() call. Noise corrupts random word positions
+      with [CORRUPTED] tokens. Agent must decide: listen for more chunks,
+      ask_speaker_repeat to denoise before relaying, relay_text when ready,
+      or flag_emergency for urgent content. Reward based on key-term
+      coverage and anti-hallucination.
     difficulty: medium
-    max_steps: 8
-    valid_decisions:
-      - speech_to_text
+    max_steps: 10
+    score_range: [0.0, 1.0]
+    valid_actions:
+      - listen
+      - relay_text
+      - ask_speaker_repeat
+      - relay_partial
+      - flag_emergency
+    state_transitions:
+      listen: "chunks_delivered += 1; returns next audio chunk"
+      ask_speaker_repeat: "Clears noise_positions for next chunk"
+    uncertainty:
+      noise_positions: "Per-word corruption at rate noise_level * 0.55"
+    failure_mode: "Heavy noise construction zone — partial relay expected"
 
-  - id: mute_mode
+  - id: asl_translate
     description: >
-      Agent recognises ASL finger-spelling frames one at a time, accumulates
-      the full word, and produces speech output for a mute user.
+      Agent translates ASL finger-spelling for a mute user. Letters arrive
+      one-at-a-time via observe_letter. Under noise, similar ASL letters
+      are confused (E/S, A/M, U/V etc.). Agent can request_repeat to reduce
+      noise on a frame, confirm_letter to irreversibly commit, or proceed
+      to speak_word. Timeliness bonus for efficient success.
     difficulty: hard
-    max_steps: 8
-    valid_decisions:
-      - sign_speech
+    max_steps: 10
+    score_range: [0.0, 1.0]
+    valid_actions:
+      - observe_letter
+      - confirm_letter
+      - request_repeat
+      - speak_word
+      - speak_partial
+    state_transitions:
+      observe_letter: "current_frame_idx += 1; returns noisy observation"
+      request_repeat: "frame_noise_boost[idx] += 0.30; current_frame_idx -= 1"
+      confirm_letter: "Appends letter to confirmed_letters (irreversible)"
+    uncertainty:
+      asl_confusion: "confusion_prob = noise_level * 0.55; confusion pairs: E/S, A/M, U/V, etc."
+    failure_mode: "Extreme scenario — high partial reward expected"
 
 observation_space:
   task_id: string
-  camera_feed: string
-  microphone: string
-  voice_command: string
-  oled_display: string | null
-  audio_output: string | null
-  asl_letter: string | null
-  spelled_word: string | null
+  episode_id: string
   step_number: integer
-  hint: string
+  steps_remaining: integer
+  camera_feed: string
+  scene_clarity: "float [0,1] — visual clarity level"
+  visible_objects: "list[string] — objects clearly visible"
+  audio_stream: "string — current chunk, may contain [CORRUPTED] tokens"
+  noise_level: "float [0,1] — environment noise intensity"
+  asl_observation: "string | null — letter, 'ambiguous: E/S', or 'unclear'"
+  asl_confidence: "float [0,1] | null"
+  confirmed_so_far: "string | null — confirmed letters so far"
+  interrupt: "string | null — mid-episode event description"
+  interrupt_urgency: "low | high | critical | null"
+  last_action_feedback: string
+  last_reward: float
+  user_context: string
 
 action_space:
-  decision: "string — one of: describe_scene | ocr_read | alert_danger | speech_to_text | sign_speech"
-  output_text: "string — agent's generated output"
-  confidence: "float [0.0, 1.0]"
+  action_type: "string — see per-task valid_actions list"
+  target: "string | null — object name or letter"
+  content: "string | null — text agent generates for user"
+  confidence: "float [0,1]"
+  priority: "current_task | handle_interrupt | null"
 
 reward:
-  range: [0.0, 1.0]
+  range: [-1.0, 1.0]
   shaped: true
   components:
-    - confidence_bonus: small bonus proportional to action confidence
-    - correct_decision: reward for choosing the right action type
-    - key_objects_mentioned: partial credit for mentioning relevant scene objects
-    - danger_flagged: reward for correctly identifying hazards
-    - key_words_relayed: partial credit for preserving speech content
-    - letter_accuracy: per-letter ASL recognition credit
-    - word_recognised: full reward for correct final word
-    - wrong_letter_penalty: penalty for hallucinated letters
+    latency_penalty: "-0.015 per step (every step costs user time)"
+    scan_gain: "+0.04–0.09 proportional to clarity gain"
+    useful_focus: "+0.06–0.12 for focusing previously unclear object"
+    redundant_focus: "+0.01 for re-focusing already-clear object"
+    wrong_target: "-0.12 for focus_object on non-existent object"
+    hazards_alerted: "+0.28 per hazard correctly identified"
+    timeliness_bonus: "+0.07 × (steps_remaining / max_steps)"
+    false_alarm: "-0.15 for alerting non-hazard"
+    path_accuracy: "+0.16 × fraction of visible objects mentioned"
+    hallucination_penalty: "-0.09 per unclear object mentioned"
+    read_accuracy: "+0.38 × key-term coverage in OCR"
+    correct_failure: "+0.45 for correctly reporting unnavigable scene"
+    wrong_failure: "-0.28 for false failure report"
+    interrupt_handled: "+0.15 if critical, +0.06 if high"
+    critical_ignored: "-0.20 for ignoring critical interrupt"
+    listen_step: "+0.03 for advancing audio stream"
+    key_term_coverage: "+0.55 × fraction of key terms relayed"
+    anti_hallucination: "-0.22 × hallucination rate"
+    complete_relay: "+0.15 bonus for 100% key term coverage"
+    correct_flag: "+0.12 for correctly flagging urgent speech"
+    asl_observe: "+0.02 for observing a new frame"
+    correct_letter: "+0.10 × (1 + 0.20 × noise_level)"
+    wrong_letter: "-0.15 for incorrect confirm_letter"
+    exact_word_match: "+0.50 + timeliness bonus"
+    partial_word: "+0.14 × letter match fraction"
+
+grader:
+  success_score: "0.74 + 0.25 × efficiency (steps used vs max)"
+  partial_score: "SCORE_MIN + 0.70 × normalized_mean_reward (capped at 0.73)"
+  note: "Success zone starts at 0.74. All partial rewards below that."
 
 endpoints:
-  reset: POST /reset?task_id=<blind_mode|deaf_mode|mute_mode>
-  step: POST /step
-  state: GET /state
-  tasks: GET /tasks
-  grader: POST /grader
-  baseline: GET /baseline
+  reset: "POST /reset?task_id=<blind_navigate|deaf_relay|asl_translate>"
+  step: "POST /step"
+  state: "GET /state"
+  tasks: "GET /tasks"
+  grader: "POST /grader"
+  baseline: "GET /baseline"

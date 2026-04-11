@@ -22,5 +22,3 @@ Thumbs.db
 
 # Local validation script — not needed in submission
 validate-submission.sh
-
-baseline_scores.json

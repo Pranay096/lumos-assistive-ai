@@ -1,0 +1,19 @@
+{
+  "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+  "temperature": 0.0,
+  "scores": {
+    "blind_navigate": {
+      "grader_score": 0.9344,
+      "success": true
+    },
+    "deaf_relay": {
+      "grader_score": 0.7678,
+      "success": true
+    },
+    "asl_translate": {
+      "grader_score": 0.7678,
+      "success": true
+    }
+  },
+  "average_score": 0.8233
+}

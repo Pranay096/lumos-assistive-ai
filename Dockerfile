@@ -2,23 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps for OpenCV (libgl1 replaces libgl1-mesa-glx in newer Debian)
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install CPU-only PyTorch first (smaller, faster build)
-RUN pip install --no-cache-dir \
-    torch==2.3.0+cpu torchvision==0.18.0+cpu \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install everything else
-COPY requirements_base.txt .
-RUN pip install --no-cache-dir -r requirements_base.txt
-
-# Copy app code + model
+# Copy application
 COPY . .
 
 EXPOSE 7860
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

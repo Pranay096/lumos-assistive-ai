@@ -1,7 +1,7 @@
 [project]
 name = "lumos-assistive-ai"
-version = "1.0.0"
-description = "LUMOS Assistive AI OpenEnv — assistive technology for blind, deaf, and mute users"
+version = "2.0.0"
+description = "LUMOS Assistive AI OpenEnv — POMDP environment for wearable smart glasses AI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,10 +12,6 @@ dependencies = [
     "numpy==1.26.4",
     "openai>=2.7.2",
     "requests",
-    "timm==1.0.24",
-    "albumentations==2.0.8",
-    "Pillow",
-    "opencv-python-headless",
 ]
 
 [project.scripts]
@@ -23,7 +19,7 @@ server = "server.app:main"
 
 [tool.openenv]
 name = "lumos-assistive-ai"
-version = "1.0.0"
+version = "2.0.0"
 
 [tool.uv]
 environments = ["python_version >= '3.11' and python_version < '3.13'"]
