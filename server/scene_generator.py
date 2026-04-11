@@ -4,16 +4,16 @@ import string
 class SceneGenerator:
     @staticmethod
     def generate(task_id: str) -> dict:
-        if task_id == "blind_navigate":
-            return SceneGenerator.generate_blind_navigate()
-        elif task_id == "deaf_relay":
-            return SceneGenerator.generate_deaf_relay()
-        elif task_id == "asl_translate":
-            return SceneGenerator.generate_asl_translate()
+        if task_id == "blind_mode":
+            return SceneGenerator.generate_blind_mode()
+        elif task_id == "deaf_mode":
+            return SceneGenerator.generate_deaf_mode()
+        elif task_id == "mute_mode":
+            return SceneGenerator.generate_mute_mode()
         raise ValueError(f"Unknown task_id: {task_id}")
 
     @staticmethod
-    def generate_blind_navigate() -> dict:
+    def generate_blind_mode() -> dict:
         contexts = [
             "User navigating a dimly lit {location} looking for the {destination}.",
             "User walking through a cluttered {location} attempting to reach the {destination}.",
@@ -99,7 +99,7 @@ class SceneGenerator:
         }
 
     @staticmethod
-    def generate_deaf_relay() -> dict:
+    def generate_deaf_mode() -> dict:
         templates = [
             "The {patient_type} presented with {symptom} requiring {drug_dosage} of {medication} every {time_interval}. Please monitor for {side_effect}.",
             "We have a {patient_type} suffering from {symptom}. Administer {medication} immediately, {drug_dosage} IV. Watch for {side_effect}.",
@@ -149,7 +149,7 @@ class SceneGenerator:
         }
 
     @staticmethod
-    def generate_asl_translate() -> dict:
+    def generate_mute_mode() -> dict:
         # Instead of picking from a fixed dictionary, generate a random phonetic-like sequence.
         # This absolutely scales the difficulty and combinatorics to infinity.
         length = random.randint(3, 5)

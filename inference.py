@@ -13,9 +13,9 @@ Environment variables:
   BASE_ENV_URL  — env server    (default: http://localhost:7860)
 
 Agent strategy:
-  - Task: blind_navigate → scan first, then focus on objects, alert dangers seen
-  - Task: deaf_relay     → listen each chunk, ask_speaker_repeat if noisy, relay_text
-  - Task: asl_translate  → observe_letter each frame, request_repeat if ambiguous,
+  - Task: blind_mode → scan first, then focus on objects, alert dangers seen
+  - Task: deaf_mode     → listen each chunk, ask_speaker_repeat if noisy, relay_text
+  - Task: mute_mode  → observe_letter each frame, request_repeat if ambiguous,
                             confirm each letter, speak_word when all frames shown
 
 The agent uses FREE CHOICE — it reasons about each observation independently.
@@ -44,7 +44,7 @@ MODEL_NAME   = os.getenv("MODEL_NAME", "meta-llama/llama-4-scout-17b-16e-instruc
 BASE_ENV_URL = os.getenv("BASE_ENV_URL", "http://localhost:7860").rstrip("/")
 BENCHMARK    = "lumos-assistive-ai"
 MAX_STEPS    = 10
-TASKS        = ["blind_navigate", "deaf_relay", "asl_translate"]
+TASKS        = ["blind_mode", "deaf_mode", "mute_mode"]
 
 # Credits-exhausted: switch to rule-based fallback for rest of episode
 _llm_exhausted = False
@@ -59,7 +59,7 @@ SYSTEM_PROMPT = textwrap.dedent("""
     ║  FREE CHOICE — no fixed sequence. Reason from the observation.  ║
     ╚══════════════════════════════════════════════════════════╝
 
-    ─── TASK: blind_navigate ─────────────────────────────────────
+    ─── TASK: blind_mode ─────────────────────────────────────
     Valid: scan | focus_object | alert_danger | describe_path | read_text | report_failure
     Strategy:
       1. scene_clarity < 0.45 → scan (repeatable, raises clarity)
@@ -70,7 +70,7 @@ SYSTEM_PROMPT = textwrap.dedent("""
       6. Scene truly dark/unnavigable → report_failure
     ⚠ NEVER call alert_danger without focusing first (false alarm = −0.15)
 
-    ─── TASK: deaf_relay ─────────────────────────────────────────
+    ─── TASK: deaf_mode ─────────────────────────────────────────
     Valid: listen | relay_text | ask_speaker_repeat
     Strategy:
       1. If the current audio chunk contains "[CORRUPTED]", you MUST call ask_speaker_repeat to clean it.
@@ -78,7 +78,7 @@ SYSTEM_PROMPT = textwrap.dedent("""
       3. ONLY when the audio explicitly says "[END OF AUDIO STREAM]" or "All chunks delivered", you MUST call relay_text. Do NOT call it early.
       4. relay_text content = paste ALL words you heard verbatim across all chunks combined! Note the [AUDIO HEARD SO FAR] helper in your prompt.
 
-    ─── TASK: asl_translate ─────────────────────────────────────────
+    ─── TASK: mute_mode ─────────────────────────────────────────
     Valid: observe_letter | confirm_letter | request_repeat | speak_word | speak_partial
 
     ★ CRITICAL MECHANIC (read carefully):
@@ -194,7 +194,7 @@ def smart_fallback(task_id: str, history: List[dict], step: int) -> dict:
     """
     obs = _get_last_obs(history)
 
-    if task_id == "blind_navigate":
+    if task_id == "blind_mode":
         clarity = obs.get("scene_clarity", 0.0) or 0.0
         visible = obs.get("visible_objects") or []
         feedback = obs.get("last_action_feedback", "")
@@ -219,7 +219,7 @@ def smart_fallback(task_id: str, history: List[dict], step: int) -> dict:
             return {"action_type": "alert_danger", "target": None, "content": f"hazard detected: {obj[:60]}", "confidence": 0.7}
         return {"action_type": "describe_path", "target": None, "content": " ".join(visible) + " path clear ahead", "confidence": 0.65}
 
-    elif task_id == "deaf_relay":
+    elif task_id == "deaf_mode":
         audio = obs.get("audio_stream", "") or ""
         listens_done = sum(
             1 for m in history
@@ -246,7 +246,7 @@ def smart_fallback(task_id: str, history: List[dict], step: int) -> dict:
             return {"action_type": "ask_speaker_repeat", "target": None, "content": None, "confidence": 0.7}
         return {"action_type": "listen", "target": None, "content": None, "confidence": 0.8}
 
-    else:  # asl_translate
+    else:  # mute_mode
         asl_obs = obs.get("asl_observation", "") or ""
         conf = obs.get("asl_confidence") or 0.0
         confirmed = obs.get("confirmed_so_far") or ""
@@ -279,19 +279,19 @@ def smart_fallback(task_id: str, history: List[dict], step: int) -> dict:
 
 # Max conversation turns to send to LLM per call (saves tokens)
 # Full history is still kept locally for smart_fallback to read
-MAX_HISTORY_TURNS = 8  # increased from 6 — deaf_relay needs more audio context
+MAX_HISTORY_TURNS = 8  # increased from 6 — deaf_mode needs more audio context
 
 
 def _build_llm_messages(history: List[dict], task_id: str) -> List[dict]:
     """
     Build the message list to send to the LLM.
     - Truncates to last MAX_HISTORY_TURNS messages to save tokens.
-    - For deaf_relay: prepends a running audio summary so the LLM
+    - For deaf_mode: prepends a running audio summary so the LLM
       remembers all chunks heard even after truncation.
     """
-    # For deaf_relay: extract all audio heard so far
+    # For deaf_mode: extract all audio heard so far
     prefix = ""
-    if task_id == "deaf_relay":
+    if task_id == "deaf_mode":
         heard = []
         for m in history:
             if m["role"] == "user":
@@ -314,7 +314,7 @@ def _build_llm_messages(history: List[dict], task_id: str) -> List[dict]:
     # Truncate to last N messages
     trimmed = history[-MAX_HISTORY_TURNS:] if len(history) > MAX_HISTORY_TURNS else history
 
-    # Inject audio summary into first user message if deaf_relay
+    # Inject audio summary into first user message if deaf_mode
     if prefix and trimmed:
         first = dict(trimmed[0])
         first["content"] = prefix + first["content"]

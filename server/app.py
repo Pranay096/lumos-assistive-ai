@@ -45,7 +45,7 @@ def root():
             "POMDP RL environment: AI agent operating wearable smart glasses "
             "for people with visual, hearing, and speech impairments."
         ),
-        "tasks": ["blind_navigate", "deaf_relay", "asl_translate"],
+        "tasks": ["blind_mode", "deaf_mode", "mute_mode"],
         "endpoints": ["/reset", "/step", "/state", "/tasks", "/grader", "/baseline"],
         "key_features": [
             "Partial observability (POMDP)",
@@ -67,8 +67,8 @@ def root():
 @app.post("/reset")
 def reset_endpoint(
     task_id: str = Query(
-        default="blind_navigate",
-        description="Task to run: blind_navigate | deaf_relay | asl_translate",
+        default="blind_mode",
+        description="Task to run: blind_mode | deaf_mode | mute_mode",
     )
 ):
     """
@@ -132,7 +132,7 @@ def tasks_endpoint():
     List all tasks, their valid actions, and difficulty metadata.
     """
     task_info = {
-        "blind_navigate": {
+        "blind_mode": {
             "description": (
                 "Agent controls wearable glasses for a blind user. "
                 "Scene starts partially visible (low clarity). "
@@ -140,7 +140,7 @@ def tasks_endpoint():
                 "alert dangers, describe safe paths, or read text — in any order."
             ),
             "difficulty": "easy",
-            "valid_actions": VALID_ACTIONS["blind_navigate"],
+            "valid_actions": VALID_ACTIONS["blind_mode"],
             "state_evolves_on": {
                 "scan": "Global clarity +0.08–0.18; all objects improve slightly",
                 "focus_object": "Per-object clarity +0.28–0.48; reveals hazard/text details",
@@ -154,14 +154,14 @@ def tasks_endpoint():
             ],
             "failure_scenario": "Dark parking lot scene — correct action is report_failure",
         },
-        "deaf_relay": {
+        "deaf_mode": {
             "description": (
                 "Agent relays speech to a deaf user's OLED display. "
                 "Audio arrives in chunks per listen() call, some words [CORRUPTED]. "
                 "Agent must decide when to listen, when to clarify, and when to relay."
             ),
             "difficulty": "medium",
-            "valid_actions": VALID_ACTIONS["deaf_relay"],
+            "valid_actions": VALID_ACTIONS["deaf_mode"],
             "state_evolves_on": {
                 "listen": "Advances audio stream to next chunk",
                 "ask_speaker_repeat": "Clears corruption for next chunk",
@@ -173,7 +173,7 @@ def tasks_endpoint():
             ],
             "failure_scenario": "Heavy construction noise — partial relay expected",
         },
-        "asl_translate": {
+        "mute_mode": {
             "description": (
                 "Agent translates ASL finger-spelling for a mute user. "
                 "Letters arrive one-by-one with noise-based confusion (ambiguous: E/S). "
@@ -181,7 +181,7 @@ def tasks_endpoint():
                 "confirm letters, and finally speak the word."
             ),
             "difficulty": "hard",
-            "valid_actions": VALID_ACTIONS["asl_translate"],
+            "valid_actions": VALID_ACTIONS["mute_mode"],
             "state_evolves_on": {
                 "observe_letter": "Advances frame index; returns noisy observation",
                 "request_repeat": "Reduces noise on current frame; goes back one frame",
@@ -268,7 +268,7 @@ def baseline_endpoint():
     """).strip()
 
     results = {}
-    TASKS = ["blind_navigate", "deaf_relay", "asl_translate"]
+    TASKS = ["blind_mode", "deaf_mode", "mute_mode"]
 
     for task_id in TASKS:
         test_env = LumosEnv()

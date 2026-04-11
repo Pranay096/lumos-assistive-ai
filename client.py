@@ -10,7 +10,7 @@ Usage:
     client = LumosClient(base_url="http://localhost:7860")
 
     # Start a new episode
-    obs = client.reset("blind_navigate")
+    obs = client.reset("blind_mode")
 
     # Take an action
     result = client.step({
@@ -56,12 +56,12 @@ class LumosClient:
     # Core OpenEnv API
     # ------------------------------------------------------------------
 
-    def reset(self, task_id: str = "blind_navigate") -> Dict[str, Any]:
+    def reset(self, task_id: str = "blind_mode") -> Dict[str, Any]:
         """
         Start a new episode for the given task.
 
         Args:
-            task_id: One of "blind_navigate", "deaf_relay", "asl_translate"
+            task_id: One of "blind_mode", "deaf_mode", "mute_mode"
 
         Returns:
             Initial observation dict (partial view of the world).

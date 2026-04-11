@@ -21,7 +21,7 @@ class Observation(BaseModel):
     The agent must use actions to improve its situational awareness
     before committing to an output action.
     """
-    task_id: str = Field(description="Current task: blind_navigate | deaf_relay | asl_translate")
+    task_id: str = Field(description="Current task: blind_mode | deaf_mode | mute_mode")
     episode_id: str = Field(description="Unique episode identifier")
     step_number: int = Field(description="Current step (1-indexed)")
     steps_remaining: int = Field(

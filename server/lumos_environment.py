@@ -60,15 +60,15 @@ ASL_CONFUSION_PAIRS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 VALID_ACTIONS: Dict[str, List[str]] = {
-    "blind_navigate": [
+    "blind_mode": [
         "scan", "focus_object", "alert_danger",
         "describe_path", "read_text", "report_failure",
     ],
-    "deaf_relay": [
+    "deaf_mode": [
         "listen", "relay_text", "ask_speaker_repeat",
         "relay_partial", "flag_emergency",
     ],
-    "asl_translate": [
+    "mute_mode": [
         "observe_letter", "confirm_letter", "request_repeat",
         "speak_word", "speak_partial",
     ],
@@ -182,13 +182,13 @@ class LumosEnv:
             is_failure_scenario=is_failure,
         )
 
-        if task_id == "blind_navigate":
+        if task_id == "blind_mode":
             w.all_objects = list(scenario["all_objects"])
             w.active_hazards = list(scenario["hazards"])
             for obj in w.all_objects:
                 w.focus_clarity[obj] = random.uniform(0.08, 0.30)
 
-        elif task_id == "deaf_relay":
+        elif task_id == "deaf_mode":
             w.full_transcript = scenario["full_transcript"]
             w.key_terms = list(scenario["key_terms"])
             words = w.full_transcript.split()
@@ -200,7 +200,7 @@ class LumosEnv:
                 for _ in words
             ]
 
-        elif task_id == "asl_translate":
+        elif task_id == "mute_mode":
             w.target_word = scenario["target_word"]
             w.asl_frames = list(scenario["frames"])
             w.current_frame_idx = 0
@@ -254,7 +254,7 @@ class LumosEnv:
             }
             w.interrupt_delivered = True
 
-        if task == "blind_navigate":
+        if task == "blind_mode":
             # Natural clarity degradation over time
             if w.scene_clarity > 0.15:
                 w.scene_clarity = max(0.10, w.scene_clarity - round(random.uniform(0.01, 0.04), 3))
@@ -315,7 +315,7 @@ class LumosEnv:
                 user_context=w.scenario.get("user_context", ""),
             )
 
-        elif task == "deaf_relay":
+        elif task == "deaf_mode":
             words = w.transcript_words
             cs = w.chunk_size
             start = w.chunks_delivered * cs
@@ -352,7 +352,7 @@ class LumosEnv:
                 user_context=w.scenario.get("user_context", ""),
             )
 
-        else:  # asl_translate
+        else:  # mute_mode
             idx = w.current_frame_idx
             frames = w.asl_frames
 
@@ -600,7 +600,7 @@ class LumosEnv:
         else:
             credits["invalid_action"] = -0.10
             reward -= 0.10
-            valid = VALID_ACTIONS["blind_navigate"]
+            valid = VALID_ACTIONS["blind_mode"]
             feedback = f"Unknown action '{a}'. Valid: {valid}"
 
         # Interrupt logic
@@ -755,7 +755,7 @@ class LumosEnv:
         else:
             credits["invalid"] = -0.08
             reward -= 0.08
-            feedback = f"Unknown action '{a}'. Valid: {VALID_ACTIONS['deaf_relay']}"
+            feedback = f"Unknown action '{a}'. Valid: {VALID_ACTIONS['deaf_mode']}"
 
         # Interrupt logic
         if w.interrupt_delivered and not w.interrupt_handled:
@@ -912,7 +912,7 @@ class LumosEnv:
         else:
             credits["invalid"] = -0.08
             reward -= 0.08
-            feedback = f"Unknown action '{a}'. Valid: {VALID_ACTIONS['asl_translate']}"
+            feedback = f"Unknown action '{a}'. Valid: {VALID_ACTIONS['mute_mode']}"
 
         # Interrupt (rare in mute mode but possible)
         if w.interrupt_delivered and not w.interrupt_handled:
@@ -941,7 +941,7 @@ class LumosEnv:
 
     # ── Public OpenEnv API ───────────────────────────────────────────────────
 
-    def reset(self, task_id: str = "blind_navigate") -> Observation:
+    def reset(self, task_id: str = "blind_mode") -> Observation:
         self._world = self._new_world(task_id)
         return self._build_obs(self._world)
 
@@ -955,9 +955,9 @@ class LumosEnv:
         w.step += 1
         w.action_history.append(action.action_type)
 
-        if w.task_id == "blind_navigate":
+        if w.task_id == "blind_mode":
             reward, feedback, success = self._transition_blind(w, action)
-        elif w.task_id == "deaf_relay":
+        elif w.task_id == "deaf_mode":
             reward, feedback, success = self._transition_deaf(w, action)
         else:
             reward, feedback, success = self._transition_asl(w, action)
@@ -985,7 +985,7 @@ class LumosEnv:
             "success": w.success,
             "episode_id": w.episode_id,
             "action_history": list(w.action_history),
-            "active_hazards": w.active_hazards if w.task_id == "blind_navigate" else None,
+            "active_hazards": w.active_hazards if w.task_id == "blind_mode" else None,
         }
         return self._build_obs(w), reward, w.done, info
 
@@ -1003,17 +1003,17 @@ class LumosEnv:
             "success": w.success,
             "noise_level": round(w.noise_level, 4),
             "scene_clarity": (
-                round(w.scene_clarity, 4) if w.task_id == "blind_navigate" else None
+                round(w.scene_clarity, 4) if w.task_id == "blind_mode" else None
             ),
-            "chunks_delivered": w.chunks_delivered if w.task_id == "deaf_relay" else None,
+            "chunks_delivered": w.chunks_delivered if w.task_id == "deaf_mode" else None,
             "total_chunks": (
                 max(1, -(-len(w.transcript_words) // w.chunk_size))
-                if w.task_id == "deaf_relay" else None
+                if w.task_id == "deaf_mode" else None
             ),
-            "current_frame": w.current_frame_idx if w.task_id == "asl_translate" else None,
-            "total_frames": len(w.asl_frames) if w.task_id == "asl_translate" else None,
+            "current_frame": w.current_frame_idx if w.task_id == "mute_mode" else None,
+            "total_frames": len(w.asl_frames) if w.task_id == "mute_mode" else None,
             "confirmed_letters": (
-                "".join(w.confirmed_letters) if w.task_id == "asl_translate" else None
+                "".join(w.confirmed_letters) if w.task_id == "mute_mode" else None
             ),
             "interrupt_delivered": w.interrupt_delivered,
             "interrupt_handled": w.interrupt_handled,
@@ -1026,7 +1026,7 @@ class LumosEnv:
             base_state.update({
                 "focus_clarity": (
                     {k: round(v, 4) for k, v in w.focus_clarity.items()}
-                    if w.task_id == "blind_navigate" else None
+                    if w.task_id == "blind_mode" else None
                 ),
                 "active_hazards": w.active_hazards,
                 "target_word": w.target_word,

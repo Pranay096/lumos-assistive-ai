@@ -36,9 +36,9 @@ LUMOS is built so that every point of improvement maps directly to assistive tec
 
 | Population | Real-world application | LUMOS Task |
 |---|---|---|
-| Visually impaired (**2.2B**) | Scene description & hazard alerts | `blind_navigate` |
-| Hearing impaired (**1.5B**) | Live captioning with noise filtering | `deaf_relay` |
-| Speech-impaired (**Millions**) | Real-time ASL translation | `asl_translate` |
+| Visually impaired (**2.2B**) | Scene description & hazard alerts | `blind_mode` |
+| Hearing impaired (**1.5B**) | Live captioning with noise filtering | `deaf_mode` |
+| Speech-impaired (**Millions**) | Real-time ASL translation | `mute_mode` |
 
 ---
 
@@ -111,9 +111,9 @@ Unlike static Q&A environments, LUMOS is designed to genuinely stress-test agent
 
 | Task | Difficulty | Description |
 |------|-----------|-------------|
-| `blind_navigate` | Easy | Interpret camera feed under fading clarity → systematically discover hazards → alert the user safely. |
-| `deaf_relay` | Medium | Relay word chunks over a microphone transcript → filter ambient physical noise tags `[STATIC]` → reconstruct correct transcript. |
-| `asl_translate` | Hard | Read extremely noisy ASL predictions → utilize physical overrides (`request_repeat`) → output exact word match avoiding confusion letter pairs. |
+| `blind_mode` | Easy | Interpret camera feed under fading clarity → systematically discover hazards → alert the user safely. |
+| `deaf_mode` | Medium | Relay word chunks over a microphone transcript → filter ambient physical noise tags `[STATIC]` → reconstruct correct transcript. |
+| `mute_mode` | Hard | Read extremely noisy ASL predictions → utilize physical overrides (`request_repeat`) → output exact word match avoiding confusion letter pairs. |
 
 ---
 
@@ -160,23 +160,23 @@ Rewards are **shaped** (not sparse) — partial credit at every step:
 | `confidence_bonus` | all | Small reward proportional to confidence (max 0.03) |
 | `correct_decision` | all | Reward for correct action type based on state |
 | `latency_penalty` | all | Negative reward proportional to battery drain per step |
-| `hazardous_alert` | `blind_navigate` | Reward for correctly identifying *all* hazards |
-| `key_words_relayed` | `deaf_relay` | Partial credit for preserving rare speech content |
-| `exact_match` | `asl_translate` | Only given for speaking the final target word |
+| `hazardous_alert` | `blind_mode` | Reward for correctly identifying *all* hazards |
+| `key_words_relayed` | `deaf_mode` | Partial credit for preserving rare speech content |
+| `exact_match` | `mute_mode` | Only given for speaking the final target word |
 
 All rewards clipped to `[-1.0, 1.0]`.
 
 **Key strictness notes:**
-- `blind_navigate`: wrong `action_type` gives penalty. Unhandled critical interrupts revoke success.
-- `deaf_relay`: wrong `action_type` gives penalty; success requires **all** key words present. Unhandled critical interrupts revoke success.
-- `asl_translate`: wrong `action_type` gives penalty; only *exact* full-word match triggers success. Unhandled critical interrupts revoke success.
+- `blind_mode`: wrong `action_type` gives penalty. Unhandled critical interrupts revoke success.
+- `deaf_mode`: wrong `action_type` gives penalty; success requires **all** key words present. Unhandled critical interrupts revoke success.
+- `mute_mode`: wrong `action_type` gives penalty; only *exact* full-word match triggers success. Unhandled critical interrupts revoke success.
 
 ---
 
 ## API Endpoints
 
 ```
-POST /reset?task_id=blind_navigate    # Start new episode
+POST /reset?task_id=blind_mode    # Start new episode
 POST /step                            # Take one step
 GET  /state                       # Current internal state
 GET  /tasks                       # Task list + action schemas
@@ -196,7 +196,7 @@ import random
 
 BASE_URL = "http://localhost:7860"
 
-def run_random_agent(task_id="blind_navigate", max_steps=10):
+def run_random_agent(task_id="blind_mode", max_steps=10):
     print(f"Starting {task_id} episode...")
     obs = requests.post(f"{BASE_URL}/reset?task_id={task_id}").json()
     
@@ -264,7 +264,7 @@ import requests
 BASE = "http://localhost:7860"
 
 # Reset to deaf relay mode
-obs = requests.post(f"{BASE}/reset?task_id=deaf_relay").json()
+obs = requests.post(f"{BASE}/reset?task_id=deaf_mode").json()
 print("Initialized Episode:", obs["episode_id"])
 
 # Take a step — relay a text block
@@ -286,9 +286,9 @@ print("Reward:", result["reward"])
 Scores vary due to stochastic environment.
 
 Typical ranges with `meta-llama/llama-4-scout-17b-16e-instruct`:
-- `blind_navigate`: 0.75–0.95
-- `deaf_relay`: 0.70–0.90
-- `asl_translate`: 0.70–0.85
+- `blind_mode`: 0.75–0.95
+- `deaf_mode`: 0.70–0.90
+- `mute_mode`: 0.70–0.85
 
 ---
 

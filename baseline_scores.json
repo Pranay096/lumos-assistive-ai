@@ -2,15 +2,15 @@
   "model": "meta-llama/llama-4-scout-17b-16e-instruct",
   "temperature": 0.0,
   "scores": {
-    "blind_navigate": {
+    "blind_mode": {
       "grader_score": 0.9344,
       "success": true
     },
-    "deaf_relay": {
+    "deaf_mode": {
       "grader_score": 0.7678,
       "success": true
     },
-    "asl_translate": {
+    "mute_mode": {
       "grader_score": 0.7678,
       "success": true
     }

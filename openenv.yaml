@@ -2,8 +2,8 @@ name: lumos-assistive-ai
 version: 2.0.0
 description: >
   POMDP-based RL environment simulating an AI-powered wearable smart glasses
-  system for people with visual (blind_navigate), hearing (deaf_relay), and
-  speech (asl_translate) impairments.
+  system for people with visual (blind_mode), hearing (deaf_mode), and
+  speech (mute_mode) impairments.
 
   The agent operates under partial observability with stochastic noise,
   dynamic world state transitions, and safety-critical decisions.
@@ -23,7 +23,7 @@ tags:
 
 tasks:
 
-  - id: blind_navigate
+  - id: blind_mode
     description: >
       Agent controls wearable AI glasses for a blind user navigating real
       environments. Scene starts with LOW clarity (0.15–0.42). Agent must
@@ -50,7 +50,7 @@ tasks:
       noise_level: "Uniform(0.20, 0.65). Heavy noise: Uniform(0.82, 0.92)."
     failure_mode: "Dark scene — correct response is report_failure"
 
-  - id: deaf_relay
+  - id: deaf_mode
     description: >
       Agent relays speech to a deaf user's OLED display. Audio arrives in
       word-chunks per listen() call. Noise corrupts random word positions
@@ -74,7 +74,7 @@ tasks:
       noise_positions: "Per-word corruption at rate noise_level * 0.55"
     failure_mode: "Heavy noise construction zone — partial relay expected"
 
-  - id: asl_translate
+  - id: mute_mode
     description: >
       Agent translates ASL finger-spelling for a mute user. Letters arrive
       one-at-a-time via observe_letter. Under noise, similar ASL letters
@@ -160,7 +160,7 @@ grader:
   note: "Success zone starts at 0.74. All partial rewards below that."
 
 endpoints:
-  reset: "POST /reset?task_id=<blind_navigate|deaf_relay|asl_translate>"
+  reset: "POST /reset?task_id=<blind_mode|deaf_mode|mute_mode>"
   step: "POST /step"
   state: "GET /state"
   tasks: "GET /tasks"
